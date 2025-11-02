@@ -31,9 +31,7 @@ def render_slice(simulator, ax, slice_type="mid_z"):
         data = simulator.density[:, :, x_slice]
         title = f"YZ Slice (x={x_slice})"
 
-    ax.imshow(
-        data, cmap="hot", origin="lower", vmin=0, vmax=1, interpolation="none"
-    )
+    ax.imshow(data, cmap="hot", origin="lower", vmin=0, vmax=1, interpolation="none")
     ax.set_title(title)
     ax.axis("off")
 

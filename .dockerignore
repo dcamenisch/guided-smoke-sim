@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Output directories (will be mounted as volumes)
+output/
+vdb_output/
+
+# Documentation
+*.md
+references/
+
+# Examples and tests
+examples/
+tests/
+
+# Other simulation files not needed for conversion
+core/
+kernels/
+simulation/
+visualization/
+*.npy

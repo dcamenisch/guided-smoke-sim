@@ -100,3 +100,13 @@ class BaseSimulator(ABC):
     def advect_velocity(self):
         """Advect velocity using semi-Lagrangian method"""
         pass
+
+    @abstractmethod
+    def export_to_npz(self, filepath, timestep=None):
+        """Export simulation state to NPZ format
+
+        Args:
+            filepath: Path to save the NPZ file
+            timestep: Optional timestep number to include in metadata
+        """
+        pass

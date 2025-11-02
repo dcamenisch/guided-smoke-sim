@@ -195,3 +195,32 @@ class SmokeSimulator2D(BaseSimulator):
         v_center = 0.5 * (self.velocity.v_data[:-1, :] + self.velocity.v_data[1:, :])
 
         return np.sqrt(u_center**2 + v_center**2)
+
+    def export_to_npz(self, filepath, timestep=None):
+        """Export 2D simulation state to NPZ format
+
+        Args:
+            filepath: Path to save the NPZ file
+            timestep: Optional timestep number to include in metadata
+        """
+        data = {
+            # Simulation parameters
+            "nx": self.nx,
+            "ny": self.ny,
+            "dx": self.dx,
+            "dt": self.dt,
+            # Velocity field (on MAC grid faces)
+            "u_velocity": self.velocity.u_data,
+            "v_velocity": self.velocity.v_data,
+            # Scalar fields (on cell centers)
+            "density": self.density,
+            "pressure": self.pressure,
+            "divergence": self.divergence,
+            "vorticity": self.vorticity,
+        }
+
+        if timestep is not None:
+            data["timestep"] = timestep
+
+        np.savez_compressed(filepath, **data)
+        print(f"Exported 2D simulation state to {filepath}")

@@ -50,9 +50,9 @@ class SmokeSimulator3D(BaseSimulator):
 
     def add_source(self):
         """Add smoke source - matches C++ applySource()"""
-        z_start, z_end = int(0.4 * self.nz), int(0.6 * self.nz) + 1
-        y_start, y_end = int(0.1 * self.ny), int(0.15 * self.ny) + 1
-        x_start, x_end = int(0.4 * self.nx), int(0.6 * self.nx) + 1
+        z_start, z_end = int(0.475 * self.nz), int(0.525 * self.nz) + 1
+        y_start, y_end = int(0.0 * self.ny), int(0.025 * self.ny) + 1
+        x_start, x_end = int(0.475 * self.nx), int(0.525 * self.nx) + 1
         self.density[z_start:z_end, y_start:y_end, x_start:x_end] = 1.0
 
     def apply_forces(self):
@@ -234,3 +234,34 @@ class SmokeSimulator3D(BaseSimulator):
         self.velocity.u_data = u_tmp
         self.velocity.v_data = v_tmp
         self.velocity.w_data = w_tmp
+
+    def export_to_npz(self, filepath, timestep=None):
+        """Export 3D simulation state to NPZ format
+
+        Args:
+            filepath: Path to save the NPZ file
+            timestep: Optional timestep number to include in metadata
+        """
+        data = {
+            # Simulation parameters
+            "nx": self.nx,
+            "ny": self.ny,
+            "nz": self.nz,
+            "dx": self.dx,
+            "dt": self.dt,
+            # Velocity field (on MAC grid faces)
+            "u_velocity": self.velocity.u_data,
+            "v_velocity": self.velocity.v_data,
+            "w_velocity": self.velocity.w_data,
+            # Scalar fields (on cell centers)
+            "density": self.density,
+            "pressure": self.pressure,
+            "divergence": self.divergence,
+            "vorticity": self.vorticity,
+        }
+
+        if timestep is not None:
+            data["timestep"] = timestep
+
+        np.savez_compressed(filepath, **data)
+        print(f"Exported 3D simulation state to {filepath}")
