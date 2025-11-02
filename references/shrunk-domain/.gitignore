@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*$py.class
+explore*
+*data/
+*backup/
+*vdb/
+build/
+*.npy
+*.csv
+.vscode
+.venv*
+*.dll
