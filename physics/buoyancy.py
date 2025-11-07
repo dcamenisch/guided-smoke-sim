@@ -2,6 +2,7 @@
 
 import numpy as np
 from core import MACGrid2D, MACGrid3D
+from kernels import grid_ops
 
 
 def apply_buoyancy_force_2d(
@@ -25,8 +26,7 @@ def apply_buoyancy_force_2d(
         alpha: Buoyancy coefficient (default: 0.1)
     """
     # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
+    grid_ops.reset_forces_2d(force)
 
     # Scaling factor to match C++ implementation
     scaling_factor = 64.0 / nx
@@ -41,8 +41,7 @@ def apply_buoyancy_force_2d(
     force.v_data[1:-1, :] += buoyancy_at_faces * scaling_factor
 
     # Update velocities with forces
-    velocity.u_data += dt * force.u_data
-    velocity.v_data += dt * force.v_data
+    grid_ops.apply_force_to_velocity_2d(velocity, force, dt)
 
 
 def apply_buoyancy_force_3d(
@@ -66,9 +65,7 @@ def apply_buoyancy_force_3d(
         alpha: Buoyancy coefficient (default: 0.1)
     """
     # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
-    force.w_data.fill(0)
+    grid_ops.reset_forces_3d(force)
 
     # Scaling factor to match C++ implementation
     scaling_factor = 64.0 / nx
@@ -83,6 +80,4 @@ def apply_buoyancy_force_3d(
     force.v_data[:, 1:-1, :] += buoyancy_at_faces * scaling_factor
 
     # Update all velocity components
-    velocity.u_data += dt * force.u_data
-    velocity.v_data += dt * force.v_data
-    velocity.w_data += dt * force.w_data
+    grid_ops.apply_force_to_velocity_3d(velocity, force, dt)

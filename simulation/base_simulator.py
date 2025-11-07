@@ -11,20 +11,40 @@ class BaseSimulator(ABC):
     Subclasses must implement dimension-specific details.
     """
 
-    def __init__(self, dt=0.07, tolerance=1e-5, max_iterations=1000):
+    def __init__(
+        self,
+        dt=0.07,
+        tolerance=1e-5,
+        max_iterations=1000,
+        cfl_target=1.0,
+        dt_min=0.001,
+        dt_max=0.1,
+    ):
         """Initialize base simulator parameters
 
         Args:
-            dt: Time step
+            dt: Initial time step (used as dt_max if not specified)
             tolerance: Convergence tolerance for pressure solver
             max_iterations: Maximum iterations for pressure solver
+            cfl_target: Target CFL number (typically 1.0-5.0)
+            dt_min: Minimum allowed time step
+            dt_max: Maximum allowed time step
         """
         self.dt = dt
+        self.dt_initial = dt  # Store initial dt for reference
         self.tolerance = tolerance
         self.max_iterations = max_iterations
+        self.cfl_target = cfl_target
+        self.dt_min = dt_min
+        self.dt_max = dt_max
+        self.current_cfl = 0.0  # Track actual CFL number
+        self.simulation_time = 0.0  # Track total accumulated simulation time
 
     def step(self):
-        """Main simulation step - matches C++ FluidApp::step()"""
+        """Main simulation step with adaptive time stepping"""
+        # Compute adaptive time step based on CFL condition
+        self.dt = self.compute_adaptive_timestep()
+
         # Add smoke source
         self.add_source()
 
@@ -39,6 +59,9 @@ class BaseSimulator(ABC):
 
         # Reset forces
         self.force.reset()
+
+        # Update simulation time
+        self.simulation_time += self.dt
 
     def solve_pressure(self):
         """Full pressure solve step - matches C++ solvePressure()"""
@@ -99,6 +122,15 @@ class BaseSimulator(ABC):
     @abstractmethod
     def advect_velocity(self):
         """Advect velocity using semi-Lagrangian method"""
+        pass
+
+    @abstractmethod
+    def compute_adaptive_timestep(self):
+        """Compute adaptive time step based on CFL condition
+
+        Returns:
+            float: Adaptive time step value
+        """
         pass
 
     @abstractmethod

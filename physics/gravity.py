@@ -2,6 +2,7 @@
 
 import numpy as np
 from core import MACGrid2D, MACGrid3D
+from kernels import grid_ops
 
 
 def apply_gravity_2d(
@@ -19,8 +20,7 @@ def apply_gravity_2d(
         g: Gravitational acceleration (default: -9.81, negative is downward)
     """
     # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
+    grid_ops.reset_forces_2d(force)
 
     # Apply gravity to v-velocity (y-direction)
     force.v_data[:] = g
@@ -43,9 +43,7 @@ def apply_gravity_3d(
         g: Gravitational acceleration (default: -9.81, negative is downward)
     """
     # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
-    force.w_data.fill(0)
+    grid_ops.reset_forces_3d(force)
 
     # Apply gravity to v-velocity (y-direction)
     force.v_data[:] = g

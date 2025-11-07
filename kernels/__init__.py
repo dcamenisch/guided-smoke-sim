@@ -1,7 +1,13 @@
 """Numba-optimized kernels for fluid simulation."""
 
 from kernels.interpolation import bilinear_interp, trilinear_interp
-from kernels.poisson import solve_poisson_jacobi_2d, solve_poisson_jacobi_3d
+from kernels.poisson import (
+    solve_poisson_jacobi_2d,
+    solve_poisson_jacobi_3d,
+    solve_poisson_rb_gauss_seidel_2d,
+    solve_poisson_rb_gauss_seidel_3d,
+)
+from kernels import grid_ops
 from kernels.advection import (
     advect_density_kernel_2d,
     advect_u_velocity_kernel_2d,
@@ -19,13 +25,19 @@ from kernels.advection import (
     advect_w_velocity_maccormack_3d,
 )
 from kernels.velocity import correct_velocity_kernel_2d, correct_velocity_kernel_3d
-from kernels.operators import compute_vorticity_kernel_2d, compute_vorticity_kernel_3d
+from kernels.differential import (
+    compute_vorticity_kernel_2d,
+    compute_vorticity_kernel_3d,
+)
 
 __all__ = [
+    "grid_ops",
     "bilinear_interp",
     "trilinear_interp",
     "solve_poisson_jacobi_2d",
     "solve_poisson_jacobi_3d",
+    "solve_poisson_rb_gauss_seidel_2d",
+    "solve_poisson_rb_gauss_seidel_3d",
     "advect_density_kernel_2d",
     "advect_u_velocity_kernel_2d",
     "advect_v_velocity_kernel_2d",

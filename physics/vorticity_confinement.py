@@ -7,6 +7,7 @@ dissipation by amplifying vorticity in the flow.
 import numpy as np
 from numba import jit
 from core import MACGrid2D, MACGrid3D
+from kernels import grid_ops
 
 
 @jit(nopython=True)
@@ -144,18 +145,13 @@ def apply_vorticity_confinement_2d(
     f_y_center = -epsilon * dx * N_x * vorticity
 
     # Average to u-faces (x-velocity locations)
-    for y in range(1, ny - 1):
-        for x in range(1, nx):
-            force.u_data[y, x] = 0.5 * (f_x_center[y, x - 1] + f_x_center[y, x])
+    grid_ops.average_center_to_u_faces_2d(f_x_center, force.u_data, ny, nx)
 
     # Average to v-faces (y-velocity locations)
-    for y in range(1, ny):
-        for x in range(1, nx - 1):
-            force.v_data[y, x] = 0.5 * (f_y_center[y - 1, x] + f_y_center[y, x])
+    grid_ops.average_center_to_v_faces_2d(f_y_center, force.v_data, ny, nx)
 
     # Update velocities
-    velocity.u_data += dt * force.u_data
-    velocity.v_data += dt * force.v_data
+    grid_ops.apply_force_to_velocity_2d(velocity, force, dt)
 
 
 def apply_vorticity_confinement_3d(
@@ -251,30 +247,13 @@ def apply_vorticity_confinement_3d(
     force.w_data.fill(0)
 
     # Average to u-faces (x-velocity locations)
-    for z in range(1, nz - 1):
-        for y in range(1, ny - 1):
-            for x in range(1, nx):
-                force.u_data[z, y, x] = 0.5 * (
-                    f_x_center[z, y, x - 1] + f_x_center[z, y, x]
-                )
+    grid_ops.average_center_to_u_faces_3d(f_x_center, force.u_data, nz, ny, nx)
 
     # Average to v-faces (y-velocity locations)
-    for z in range(1, nz - 1):
-        for y in range(1, ny):
-            for x in range(1, nx - 1):
-                force.v_data[z, y, x] = 0.5 * (
-                    f_y_center[z, y - 1, x] + f_y_center[z, y, x]
-                )
+    grid_ops.average_center_to_v_faces_3d(f_y_center, force.v_data, nz, ny, nx)
 
     # Average to w-faces (z-velocity locations)
-    for z in range(1, nz):
-        for y in range(1, ny - 1):
-            for x in range(1, nx - 1):
-                force.w_data[z, y, x] = 0.5 * (
-                    f_z_center[z - 1, y, x] + f_z_center[z, y, x]
-                )
+    grid_ops.average_center_to_w_faces_3d(f_z_center, force.w_data, nz, ny, nx)
 
     # Update velocities
-    velocity.u_data += dt * force.u_data
-    velocity.v_data += dt * force.v_data
-    velocity.w_data += dt * force.w_data
+    grid_ops.apply_force_to_velocity_3d(velocity, force, dt)

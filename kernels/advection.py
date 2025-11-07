@@ -3,6 +3,7 @@
 import numpy as np
 from numba import jit, prange
 from kernels.interpolation import bilinear_interp, trilinear_interp
+from kernels import grid_ops
 
 
 # ============= 2D Advection Kernels =============
@@ -26,16 +27,14 @@ def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx):
     for y in prange(1, ny - 1):
         for x in range(1, nx - 1):
             # Interpolate velocity to cell center
-            last_x_velocity = (u[y, x] + u[y, x + 1]) * 0.5
-            last_y_velocity = (v[y, x] + v[y + 1, x]) * 0.5
+            last_x_velocity, last_y_velocity = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
 
             # Trace backwards
             last_x = x - dt / dx * last_x_velocity
             last_y = y - dt / dx * last_y_velocity
 
             # Clamp to valid density region
-            last_x = max(1.0, min(last_x, nx - 2.0))
-            last_y = max(1.0, min(last_y, ny - 2.0))
+            last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             density_new[y, x] = bilinear_interp(density, last_x, last_y)
@@ -59,17 +58,14 @@ def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx):
             last_x_velocity = u[y, x]
 
             # Average 4 v values around u-face
-            last_y_velocity = (
-                v[y, x] + v[y, x - 1] + v[y + 1, x - 1] + v[y + 1, x]
-            ) * 0.25
+            last_y_velocity = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
 
             # Trace backwards
             last_x = x - dt / dx * last_x_velocity
             last_y = y - dt / dx * last_y_velocity
 
             # Clamp to MAC grid boundaries for u
-            last_x = max(1.5, min(last_x, nx - 1.5))
-            last_y = max(1.5, min(last_y, ny - 2.5))
+            last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             u_new[y, x] = bilinear_interp(u, last_x, last_y)
@@ -93,17 +89,14 @@ def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx):
             last_y_velocity = v[y, x]
 
             # Average 4 u values around v-face
-            last_x_velocity = (
-                u[y, x] + u[y, x + 1] + u[y - 1, x + 1] + u[y - 1, x]
-            ) * 0.25
+            last_x_velocity = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
 
             # Trace backwards
             last_x = x - dt / dx * last_x_velocity
             last_y = y - dt / dx * last_y_velocity
 
             # Clamp to MAC grid boundaries for v
-            last_x = max(1.5, min(last_x, nx - 2.5))
-            last_y = max(1.5, min(last_y, ny - 1.5))
+            last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             v_new[y, x] = bilinear_interp(v, last_x, last_y)
@@ -132,9 +125,7 @@ def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
                 # Interpolate velocity to cell center
-                last_x_velocity = (u[z, y, x] + u[z, y, x + 1]) * 0.5
-                last_y_velocity = (v[z, y, x] + v[z, y + 1, x]) * 0.5
-                last_z_velocity = (w[z, y, x] + w[z + 1, y, x]) * 0.5
+                last_x_velocity, last_y_velocity, last_z_velocity = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
 
                 # Trace backwards
                 last_x = x - dt / dx * last_x_velocity
@@ -142,9 +133,7 @@ def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx):
                 last_z = z - dt / dx * last_z_velocity
 
                 # Clamp
-                last_x = max(1.0, min(last_x, nx - 2.0))
-                last_y = max(1.0, min(last_y, ny - 2.0))
-                last_z = max(1.0, min(last_z, nz - 2.0))
+                last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 density_new[z, y, x] = trilinear_interp(density, last_x, last_y, last_z)
@@ -170,14 +159,10 @@ def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
                 last_x_velocity = u[z, y, x]
 
                 # Average 4 v values around u-face
-                last_y_velocity = (
-                    v[z, y, x - 1] + v[z, y + 1, x - 1] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
+                last_y_velocity = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
 
                 # Average 4 w values around u-face
-                last_z_velocity = (
-                    w[z, y, x - 1] + w[z + 1, y, x - 1] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                last_z_velocity = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
 
                 # Trace backwards
                 last_x = x - dt / dx * last_x_velocity
@@ -185,9 +170,7 @@ def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
                 last_z = z - dt / dx * last_z_velocity
 
                 # Clamp to MAC grid boundaries for u
-                last_x = max(1.5, min(last_x, nx - 1.5))
-                last_y = max(1.5, min(last_y, ny - 2.5))
-                last_z = max(1.5, min(last_z, nz - 2.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 u_new[z, y, x] = trilinear_interp(u, last_x, last_y, last_z)
@@ -213,14 +196,10 @@ def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
                 last_y_velocity = v[z, y, x]
 
                 # Average 4 u values around v-face
-                last_x_velocity = (
-                    u[z, y - 1, x] + u[z, y - 1, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
+                last_x_velocity = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
 
                 # Average 4 w values around v-face
-                last_z_velocity = (
-                    w[z, y - 1, x] + w[z + 1, y - 1, x] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                last_z_velocity = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
 
                 # Trace backwards
                 last_x = x - dt / dx * last_x_velocity
@@ -228,9 +207,7 @@ def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
                 last_z = z - dt / dx * last_z_velocity
 
                 # Clamp to MAC grid boundaries for v
-                last_x = max(1.5, min(last_x, nx - 2.5))
-                last_y = max(1.5, min(last_y, ny - 1.5))
-                last_z = max(1.5, min(last_z, nz - 2.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 v_new[z, y, x] = trilinear_interp(v, last_x, last_y, last_z)
@@ -256,14 +233,10 @@ def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
                 last_z_velocity = w[z, y, x]
 
                 # Average 4 u values around w-face
-                last_x_velocity = (
-                    u[z - 1, y, x] + u[z - 1, y, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
+                last_x_velocity = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
 
                 # Average 4 v values around w-face
-                last_y_velocity = (
-                    v[z - 1, y, x] + v[z - 1, y + 1, x] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
+                last_y_velocity = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
 
                 # Trace backwards
                 last_x = x - dt / dx * last_x_velocity
@@ -271,9 +244,7 @@ def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
                 last_z = z - dt / dx * last_z_velocity
 
                 # Clamp to MAC grid boundaries for w
-                last_x = max(1.5, min(last_x, nx - 2.5))
-                last_y = max(1.5, min(last_y, ny - 2.5))
-                last_z = max(1.5, min(last_z, nz - 1.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 w_new[z, y, x] = trilinear_interp(w, last_x, last_y, last_z)
@@ -308,16 +279,14 @@ def advect_density_maccormack_2d(density, density_new, u, v, dx, dt, ny, nx):
     for y in prange(1, ny - 1):
         for x in range(1, nx - 1):
             # Interpolate velocity to cell center
-            vel_x = (u[y, x] + u[y, x + 1]) * 0.5
-            vel_y = (v[y, x] + v[y + 1, x]) * 0.5
+            vel_x, vel_y = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
 
             # Trace backwards
             last_x = x - dt / dx * vel_x
             last_y = y - dt / dx * vel_y
 
             # Clamp
-            last_x = max(1.0, min(last_x, nx - 2.0))
-            last_y = max(1.0, min(last_y, ny - 2.0))
+            last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
 
             phi_hat[y, x] = bilinear_interp(density, last_x, last_y)
 
@@ -325,16 +294,14 @@ def advect_density_maccormack_2d(density, density_new, u, v, dx, dt, ny, nx):
     for y in prange(1, ny - 1):
         for x in range(1, nx - 1):
             # Interpolate velocity to cell center
-            vel_x = (u[y, x] + u[y, x + 1]) * 0.5
-            vel_y = (v[y, x] + v[y + 1, x]) * 0.5
+            vel_x, vel_y = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
 
             # Trace FORWARD
             next_x = x + dt / dx * vel_x
             next_y = y + dt / dx * vel_y
 
             # Clamp
-            next_x = max(1.0, min(next_x, nx - 2.0))
-            next_y = max(1.0, min(next_y, ny - 2.0))
+            next_x, next_y = grid_ops.clamp_to_cell_center_2d(next_x, next_y, nx, ny)
 
             phi_hat_hat[y, x] = bilinear_interp(phi_hat, next_x, next_y)
 
@@ -346,17 +313,7 @@ def advect_density_maccormack_2d(density, density_new, u, v, dx, dt, ny, nx):
 
             # Find min/max in neighborhood for clamping
             # This prevents overshoots and maintains stability
-            neighbors_min = density[y, x]
-            neighbors_max = density[y, x]
-
-            for dy in range(-1, 2):
-                for dx_offset in range(-1, 2):
-                    ny_idx = y + dy
-                    nx_idx = x + dx_offset
-                    if 0 <= ny_idx < ny and 0 <= nx_idx < nx:
-                        val = density[ny_idx, nx_idx]
-                        neighbors_min = min(neighbors_min, val)
-                        neighbors_max = max(neighbors_max, val)
+            neighbors_min, neighbors_max = grid_ops.find_neighborhood_bounds_2d(density, y, x, ny, nx)
 
             # Clamp correction to neighborhood bounds
             density_new[y, x] = max(neighbors_min, min(correction, neighbors_max))
@@ -381,13 +338,12 @@ def advect_u_velocity_maccormack_2d(u, u_new, v, dx, dt, ny, nx):
     for y in prange(1, ny - 1):
         for x in range(1, nx):
             vel_x = u[y, x]
-            vel_y = (v[y, x] + v[y, x - 1] + v[y + 1, x - 1] + v[y + 1, x]) * 0.25
+            vel_y = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
 
             last_x = x - dt / dx * vel_x
             last_y = y - dt / dx * vel_y
 
-            last_x = max(1.5, min(last_x, nx - 1.5))
-            last_y = max(1.5, min(last_y, ny - 2.5))
+            last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
 
             phi_hat[y, x] = bilinear_interp(u, last_x, last_y)
 
@@ -395,13 +351,12 @@ def advect_u_velocity_maccormack_2d(u, u_new, v, dx, dt, ny, nx):
     for y in prange(1, ny - 1):
         for x in range(1, nx):
             vel_x = phi_hat[y, x]
-            vel_y = (v[y, x] + v[y, x - 1] + v[y + 1, x - 1] + v[y + 1, x]) * 0.25
+            vel_y = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
 
             next_x = x + dt / dx * vel_x
             next_y = y + dt / dx * vel_y
 
-            next_x = max(1.5, min(next_x, nx - 1.5))
-            next_y = max(1.5, min(next_y, ny - 2.5))
+            next_x, next_y = grid_ops.clamp_to_u_face_2d(next_x, next_y, nx, ny)
 
             phi_hat_hat[y, x] = bilinear_interp(phi_hat, next_x, next_y)
 
@@ -411,15 +366,7 @@ def advect_u_velocity_maccormack_2d(u, u_new, v, dx, dt, ny, nx):
             correction = phi_hat[y, x] + 0.5 * (u[y, x] - phi_hat_hat[y, x])
 
             # Find neighborhood bounds
-            neighbors_min = u[y, x]
-            neighbors_max = u[y, x]
-
-            for dy in range(-1, 2):
-                ny_idx = y + dy
-                if 0 <= ny_idx < ny:
-                    val = u[ny_idx, x]
-                    neighbors_min = min(neighbors_min, val)
-                    neighbors_max = max(neighbors_max, val)
+            neighbors_min, neighbors_max = grid_ops.find_neighborhood_bounds_1d_y_2d(u, y, x, ny)
 
             u_new[y, x] = max(neighbors_min, min(correction, neighbors_max))
 
@@ -443,13 +390,12 @@ def advect_v_velocity_maccormack_2d(v, v_new, u, dx, dt, ny, nx):
     for y in prange(1, ny):
         for x in range(1, nx - 1):
             vel_y = v[y, x]
-            vel_x = (u[y, x] + u[y, x + 1] + u[y - 1, x + 1] + u[y - 1, x]) * 0.25
+            vel_x = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
 
             last_x = x - dt / dx * vel_x
             last_y = y - dt / dx * vel_y
 
-            last_x = max(1.5, min(last_x, nx - 2.5))
-            last_y = max(1.5, min(last_y, ny - 1.5))
+            last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
 
             phi_hat[y, x] = bilinear_interp(v, last_x, last_y)
 
@@ -457,13 +403,12 @@ def advect_v_velocity_maccormack_2d(v, v_new, u, dx, dt, ny, nx):
     for y in prange(1, ny):
         for x in range(1, nx - 1):
             vel_y = phi_hat[y, x]
-            vel_x = (u[y, x] + u[y, x + 1] + u[y - 1, x + 1] + u[y - 1, x]) * 0.25
+            vel_x = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
 
             next_x = x + dt / dx * vel_x
             next_y = y + dt / dx * vel_y
 
-            next_x = max(1.5, min(next_x, nx - 2.5))
-            next_y = max(1.5, min(next_y, ny - 1.5))
+            next_x, next_y = grid_ops.clamp_to_v_face_2d(next_x, next_y, nx, ny)
 
             phi_hat_hat[y, x] = bilinear_interp(phi_hat, next_x, next_y)
 
@@ -472,7 +417,7 @@ def advect_v_velocity_maccormack_2d(v, v_new, u, dx, dt, ny, nx):
         for x in range(1, nx - 1):
             correction = phi_hat[y, x] + 0.5 * (v[y, x] - phi_hat_hat[y, x])
 
-            # Find neighborhood bounds
+            # Find neighborhood bounds (1D along x-axis)
             neighbors_min = v[y, x]
             neighbors_max = v[y, x]
 
@@ -510,17 +455,13 @@ def advect_density_maccormack_3d(density, density_new, u, v, w, dx, dt, nz, ny, 
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
-                vel_x = (u[z, y, x] + u[z, y, x + 1]) * 0.5
-                vel_y = (v[z, y, x] + v[z, y + 1, x]) * 0.5
-                vel_z = (w[z, y, x] + w[z + 1, y, x]) * 0.5
+                vel_x, vel_y, vel_z = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
 
                 last_x = x - dt / dx * vel_x
                 last_y = y - dt / dx * vel_y
                 last_z = z - dt / dx * vel_z
 
-                last_x = max(1.0, min(last_x, nx - 2.0))
-                last_y = max(1.0, min(last_y, ny - 2.0))
-                last_z = max(1.0, min(last_z, nz - 2.0))
+                last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 phi_hat[z, y, x] = trilinear_interp(density, last_x, last_y, last_z)
 
@@ -528,17 +469,13 @@ def advect_density_maccormack_3d(density, density_new, u, v, w, dx, dt, nz, ny, 
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
-                vel_x = (u[z, y, x] + u[z, y, x + 1]) * 0.5
-                vel_y = (v[z, y, x] + v[z, y + 1, x]) * 0.5
-                vel_z = (w[z, y, x] + w[z + 1, y, x]) * 0.5
+                vel_x, vel_y, vel_z = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
 
                 next_x = x + dt / dx * vel_x
                 next_y = y + dt / dx * vel_y
                 next_z = z + dt / dx * vel_z
 
-                next_x = max(1.0, min(next_x, nx - 2.0))
-                next_y = max(1.0, min(next_y, ny - 2.0))
-                next_z = max(1.0, min(next_z, nz - 2.0))
+                next_x, next_y, next_z = grid_ops.clamp_to_cell_center_3d(next_x, next_y, next_z, nx, ny, nz)
 
                 phi_hat_hat[z, y, x] = trilinear_interp(phi_hat, next_x, next_y, next_z)
 
@@ -551,23 +488,7 @@ def advect_density_maccormack_3d(density, density_new, u, v, w, dx, dt, nz, ny, 
                 )
 
                 # Find neighborhood bounds
-                neighbors_min = density[z, y, x]
-                neighbors_max = density[z, y, x]
-
-                for dz in range(-1, 2):
-                    for dy in range(-1, 2):
-                        for dx_offset in range(-1, 2):
-                            nz_idx = z + dz
-                            ny_idx = y + dy
-                            nx_idx = x + dx_offset
-                            if (
-                                0 <= nz_idx < nz
-                                and 0 <= ny_idx < ny
-                                and 0 <= nx_idx < nx
-                            ):
-                                val = density[nz_idx, ny_idx, nx_idx]
-                                neighbors_min = min(neighbors_min, val)
-                                neighbors_max = max(neighbors_max, val)
+                neighbors_min, neighbors_max = grid_ops.find_neighborhood_bounds_3d(density, z, y, x, nz, ny, nx)
 
                 density_new[z, y, x] = max(
                     neighbors_min, min(correction, neighbors_max)
@@ -595,20 +516,14 @@ def advect_u_velocity_maccormack_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
         for y in range(1, ny - 1):
             for x in range(1, nx):
                 vel_x = u[z, y, x]
-                vel_y = (
-                    v[z, y, x - 1] + v[z, y + 1, x - 1] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
-                vel_z = (
-                    w[z, y, x - 1] + w[z + 1, y, x - 1] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                vel_y = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                vel_z = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
 
                 last_x = x - dt / dx * vel_x
                 last_y = y - dt / dx * vel_y
                 last_z = z - dt / dx * vel_z
 
-                last_x = max(1.5, min(last_x, nx - 1.5))
-                last_y = max(1.5, min(last_y, ny - 2.5))
-                last_z = max(1.5, min(last_z, nz - 2.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 phi_hat[z, y, x] = trilinear_interp(u, last_x, last_y, last_z)
 
@@ -617,20 +532,14 @@ def advect_u_velocity_maccormack_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
         for y in range(1, ny - 1):
             for x in range(1, nx):
                 vel_x = phi_hat[z, y, x]
-                vel_y = (
-                    v[z, y, x - 1] + v[z, y + 1, x - 1] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
-                vel_z = (
-                    w[z, y, x - 1] + w[z + 1, y, x - 1] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                vel_y = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                vel_z = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
 
                 next_x = x + dt / dx * vel_x
                 next_y = y + dt / dx * vel_y
                 next_z = z + dt / dx * vel_z
 
-                next_x = max(1.5, min(next_x, nx - 1.5))
-                next_y = max(1.5, min(next_y, ny - 2.5))
-                next_z = max(1.5, min(next_z, nz - 2.5))
+                next_x, next_y, next_z = grid_ops.clamp_to_u_face_3d(next_x, next_y, next_z, nx, ny, nz)
 
                 phi_hat_hat[z, y, x] = trilinear_interp(phi_hat, next_x, next_y, next_z)
 
@@ -678,20 +587,14 @@ def advect_v_velocity_maccormack_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
         for y in range(1, ny):
             for x in range(1, nx - 1):
                 vel_y = v[z, y, x]
-                vel_x = (
-                    u[z, y - 1, x] + u[z, y - 1, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
-                vel_z = (
-                    w[z, y - 1, x] + w[z + 1, y - 1, x] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                vel_x = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                vel_z = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
 
                 last_x = x - dt / dx * vel_x
                 last_y = y - dt / dx * vel_y
                 last_z = z - dt / dx * vel_z
 
-                last_x = max(1.5, min(last_x, nx - 2.5))
-                last_y = max(1.5, min(last_y, ny - 1.5))
-                last_z = max(1.5, min(last_z, nz - 2.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 phi_hat[z, y, x] = trilinear_interp(v, last_x, last_y, last_z)
 
@@ -700,20 +603,14 @@ def advect_v_velocity_maccormack_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
         for y in range(1, ny):
             for x in range(1, nx - 1):
                 vel_y = phi_hat[z, y, x]
-                vel_x = (
-                    u[z, y - 1, x] + u[z, y - 1, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
-                vel_z = (
-                    w[z, y - 1, x] + w[z + 1, y - 1, x] + w[z, y, x] + w[z + 1, y, x]
-                ) * 0.25
+                vel_x = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                vel_z = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
 
                 next_x = x + dt / dx * vel_x
                 next_y = y + dt / dx * vel_y
                 next_z = z + dt / dx * vel_z
 
-                next_x = max(1.5, min(next_x, nx - 2.5))
-                next_y = max(1.5, min(next_y, ny - 1.5))
-                next_z = max(1.5, min(next_z, nz - 2.5))
+                next_x, next_y, next_z = grid_ops.clamp_to_v_face_3d(next_x, next_y, next_z, nx, ny, nz)
 
                 phi_hat_hat[z, y, x] = trilinear_interp(phi_hat, next_x, next_y, next_z)
 
@@ -761,20 +658,14 @@ def advect_w_velocity_maccormack_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
                 vel_z = w[z, y, x]
-                vel_x = (
-                    u[z - 1, y, x] + u[z - 1, y, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
-                vel_y = (
-                    v[z - 1, y, x] + v[z - 1, y + 1, x] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
+                vel_x = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                vel_y = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
 
                 last_x = x - dt / dx * vel_x
                 last_y = y - dt / dx * vel_y
                 last_z = z - dt / dx * vel_z
 
-                last_x = max(1.5, min(last_x, nx - 2.5))
-                last_y = max(1.5, min(last_y, ny - 2.5))
-                last_z = max(1.5, min(last_z, nz - 1.5))
+                last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 phi_hat[z, y, x] = trilinear_interp(w, last_x, last_y, last_z)
 
