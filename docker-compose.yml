@@ -7,12 +7,9 @@ services:
     image: smoke-sim-vdb-converter
     container_name: npz-to-vdb-converter
     volumes:
-      # Mount your NPZ files directory (read-only for safety)
-      - ./output:/app/input:ro
-      # Mount output directory for VDB files
-      - ./vdb_output:/app/output
+      # Mount the entire results directory (allows writing to subdirectories)
+      - ./results:/app/results
     environment:
       # Optional: customize field name (default: density)
       - FIELD_NAME=density
-    # Override default command if needed
-    # command: ["python", "npz_to_vdb.py", "/app/input/state_0000.npz", "/app/output/state_0000.vdb"]
+

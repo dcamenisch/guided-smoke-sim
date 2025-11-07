@@ -1,6 +1,7 @@
 .claude
-output/
-vdb_output/
+results/
+*.npz
+*.vdb
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,macos,linux,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,macos,linux,windows

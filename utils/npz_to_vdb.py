@@ -146,8 +146,12 @@ Examples:
   # Convert a single file
   python npz_to_vdb.py state_0000.npz output.vdb
   
-  # Convert all files in a directory
-  python npz_to_vdb.py output/sim_3d/ output/vdb_3d/
+  # Convert all files in a directory (auto-generates output dir with -vdb suffix)
+  python npz_to_vdb.py results/experiment-name
+  # Creates: results/experiment-name-vdb/
+  
+  # Or specify custom output directory
+  python npz_to_vdb.py results/experiment-name results/custom-output/
   
   # Convert with custom field
   python npz_to_vdb.py state.npz output.vdb --field vorticity
@@ -158,7 +162,13 @@ Examples:
     )
 
     parser.add_argument("input", type=str, help="Input NPZ file or directory")
-    parser.add_argument("output", type=str, help="Output VDB file or directory")
+    parser.add_argument(
+        "output",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Output VDB file or directory (optional: auto-generates for directories)",
+    )
     parser.add_argument(
         "--field",
         type=str,
@@ -178,8 +188,24 @@ Examples:
     args = parser.parse_args()
 
     input_path = Path(args.input)
-    output_path = Path(args.output)
     verbose = not args.quiet
+
+    # Determine output path
+    if args.output is not None:
+        output_path = Path(args.output)
+    else:
+        # Auto-generate output path
+        if input_path.is_file():
+            print("Error: Output path is required for single file conversion")
+            sys.exit(1)
+        elif input_path.is_dir():
+            # Add -vdb suffix to directory name
+            output_path = input_path.parent / (input_path.name + "-vdb")
+            if verbose:
+                print(f"Auto-generated output directory: {output_path}")
+        else:
+            print(f"Error: Input path '{input_path}' does not exist")
+            sys.exit(1)
 
     # Check if input is a file or directory
     if input_path.is_file():

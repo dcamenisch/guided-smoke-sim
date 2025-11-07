@@ -7,6 +7,7 @@ set -e
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}NPZ to VDB Converter (Docker)${NC}"
@@ -24,18 +25,42 @@ if ! docker image inspect smoke-sim-vdb-converter > /dev/null 2>&1; then
     docker-compose build
 fi
 
-# Create output directory if it doesn't exist
-mkdir -p vdb_output
-
 # Check if custom arguments are provided
 if [ $# -eq 0 ]; then
-    # Default: convert all files in output/ directory
-    echo -e "${GREEN}Converting all NPZ files in output/ directory...${NC}"
+    # Default: show usage help
+    echo -e "${YELLOW}Usage examples:${NC}"
+    echo ""
+    echo "Convert a specific experiment (auto-generates output dir):"
+    echo -e "  ${GREEN}./run_conversion.sh results/experiment-name${NC}"
+    echo -e "  ${BLUE}→ Creates: results/experiment-name-vdb/${NC}"
+    echo ""
+    echo "Convert with custom output directory:"
+    echo -e "  ${GREEN}./run_conversion.sh results/experiment-name results/custom-output${NC}"
+    echo ""
+    echo "Convert specific field (e.g., vorticity):"
+    echo -e "  ${GREEN}./run_conversion.sh results/experiment-name --field vorticity${NC}"
+    echo ""
+    echo -e "${YELLOW}Note: Paths are relative to the project root${NC}"
+    echo ""
     docker-compose run --rm vdb-converter
 else
     # Custom command passed as arguments
-    echo -e "${GREEN}Running custom conversion command...${NC}"
-    docker-compose run --rm vdb-converter python npz_to_vdb.py "$@"
+    # Convert local paths to Docker container paths
+    ARGS=()
+    for arg in "$@"; do
+        # Check if argument looks like a local path (starts with results/, output/, or is a relative path without -)
+        if [[ "$arg" == results/* ]] || [[ "$arg" == output/* ]] || [[ "$arg" == ./* ]]; then
+            # Convert to container path
+            ARGS+=("/app/$arg")
+        else
+            # Keep as-is (flags, options, etc.)
+            ARGS+=("$arg")
+        fi
+    done
+    
+    echo -e "${GREEN}Running conversion...${NC}"
+    echo -e "${BLUE}Command: python npz_to_vdb.py ${ARGS[@]}${NC}"
+    docker-compose run --rm vdb-converter python npz_to_vdb.py "${ARGS[@]}"
+    echo ""
+    echo -e "${GREEN}✓ Conversion complete!${NC}"
 fi
-
-echo -e "${GREEN}Conversion complete! VDB files are in vdb_output/${NC}"

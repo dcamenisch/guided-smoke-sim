@@ -5,7 +5,8 @@ This matches the C++ reference implementation exactly.
 Run this script to see the 3D smoke simulation in action.
 
 Usage:
-    python run_3d.py                    # Run interactive animation
+    python run_3d.py                    # Run interactive animation with MacCormack
+    python run_3d.py --semi-lagrangian  # Use semi-Lagrangian advection
     python run_3d.py --export           # Export simulation states to output/sim_3d/
     python run_3d.py --export --frames 100 --output my_output/
 """
@@ -47,14 +48,34 @@ def main():
         default=30,
         help="Animation interval in milliseconds (default: 30)",
     )
+    parser.add_argument(
+        "--semi-lagrangian",
+        action="store_true",
+        help="Use semi-Lagrangian advection instead of MacCormack (default: MacCormack)",
+    )
+    parser.add_argument(
+        "--vorticity",
+        type=float,
+        default=0.0,
+        help="Vorticity confinement strength (0.0=disabled, 0.1-0.5 typical) (default: 0.0)",
+    )
 
     args = parser.parse_args()
 
     print("Starting 3D Smoke Simulation...")
-    print("This matches the C++ reference implementation")
+    advection_method = "Semi-Lagrangian" if args.semi_lagrangian else "MacCormack"
+    print(f"Using {advection_method} advection")
+    if args.vorticity > 0.0:
+        print(f"Vorticity confinement enabled (epsilon={args.vorticity})")
 
     # Use same resolution as original
-    sim = SmokeSimulator3D(nx=64, ny=96, nz=64)
+    sim = SmokeSimulator3D(
+        nx=64,
+        ny=96,
+        nz=64,
+        use_maccormack=not args.semi_lagrangian,
+        vorticity_epsilon=args.vorticity,
+    )
 
     if args.export:
         print(f"Exporting {args.frames} simulation states to {args.output}/...")

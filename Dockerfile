@@ -22,7 +22,7 @@ WORKDIR /app
 COPY utils/npz_to_vdb.py /app/npz_to_vdb.py
 
 # Create directories for input/output (will be mounted as volumes)
-RUN mkdir -p /app/input /app/output
+RUN mkdir -p /app/results /app/output
 
-# Default command: convert all files in input directory
-CMD ["python", "npz_to_vdb.py", "/app/input", "/app/output"]
+# Default command: show help (user should specify input directory)
+CMD ["python", "npz_to_vdb.py", "--help"]

@@ -2,6 +2,8 @@
 
 import numpy as np
 from simulation.base_simulator import BaseSimulator
+from physics.buoyancy import apply_buoyancy_force_3d
+from physics.vorticity_confinement import apply_vorticity_confinement_3d
 from core import MACGrid3D
 from kernels import (
     solve_poisson_jacobi_3d,
@@ -10,6 +12,10 @@ from kernels import (
     advect_u_velocity_kernel_3d,
     advect_v_velocity_kernel_3d,
     advect_w_velocity_kernel_3d,
+    advect_density_maccormack_3d,
+    advect_u_velocity_maccormack_3d,
+    advect_v_velocity_maccormack_3d,
+    advect_w_velocity_maccormack_3d,
     compute_vorticity_kernel_3d,
 )
 
@@ -21,7 +27,15 @@ class SmokeSimulator3D(BaseSimulator):
     """
 
     def __init__(
-        self, nx=64, ny=96, nz=3, dt=0.07, tolerance=1e-5, max_iterations=1000
+        self,
+        nx=64,
+        ny=96,
+        nz=3,
+        dt=0.07,
+        tolerance=1e-5,
+        max_iterations=1000,
+        use_maccormack=True,
+        vorticity_epsilon=0.0,
     ):
         """Initialize 3D smoke simulator
 
@@ -32,11 +46,15 @@ class SmokeSimulator3D(BaseSimulator):
             dt: Time step
             tolerance: Convergence tolerance for pressure solver
             max_iterations: Maximum iterations for pressure solver
+            use_maccormack: Use MacCormack advection (True) or semi-Lagrangian (False)
+            vorticity_epsilon: Vorticity confinement strength (0.0 = disabled, 0.1-0.5 typical)
         """
         super().__init__(dt=dt, tolerance=tolerance, max_iterations=max_iterations)
 
         self.nx, self.ny, self.nz = nx, ny, nz
         self.dx = 1.0 / nx
+        self.use_maccormack = use_maccormack
+        self.vorticity_epsilon = vorticity_epsilon
 
         # MAC grids for velocity and force
         self.velocity = MACGrid3D(nx, ny, nz, self.dx)
@@ -60,22 +78,14 @@ class SmokeSimulator3D(BaseSimulator):
 
         Matches C++ addBuoyancyForce() + applyForce()
         """
-        scaling_factor = 64.0 / self.nx
-
-        # Buoyancy force proportional to density
-        alpha = 0.1
-        buoyancy = alpha * self.density
-
-        # Average adjacent cells to interior y-faces
-        buoyancy_at_faces = 0.5 * (buoyancy[:, :-1, :] + buoyancy[:, 1:, :])
-
-        # Apply to interior v-faces (y-velocity)
-        self.force.v_data[:, 1:-1, :] += buoyancy_at_faces * scaling_factor
-
-        # Update all velocity components
-        self.velocity.u_data += self.dt * self.force.u_data
-        self.velocity.v_data += self.dt * self.force.v_data
-        self.velocity.w_data += self.dt * self.force.w_data
+        apply_buoyancy_force_3d(
+            self.force,
+            self.velocity,
+            self.density,
+            self.dt,
+            self.nx,
+            alpha=0.1,
+        )
 
     def set_boundary_conditions(self):
         """Set boundary conditions - matches C++ setBoundaryConditions()"""
@@ -192,25 +202,51 @@ class SmokeSimulator3D(BaseSimulator):
             self.nx,
         )
 
+        # Apply vorticity confinement if enabled
+        if self.vorticity_epsilon > 0.0:
+            apply_vorticity_confinement_3d(
+                self.force,
+                self.velocity,
+                self.vorticity,
+                self.dx,
+                self.dt,
+                epsilon=self.vorticity_epsilon,
+            )
+
     def advect_density(self):
-        """Advect density using semi-Lagrangian method - matches C++ advectDensitySL()"""
+        """Advect density using MacCormack or semi-Lagrangian method"""
         density_tmp = np.zeros_like(self.density)
-        advect_density_kernel_3d(
-            self.density,
-            density_tmp,
-            self.velocity.u_data,
-            self.velocity.v_data,
-            self.velocity.w_data,
-            self.dx,
-            self.dt,
-            self.nz,
-            self.ny,
-            self.nx,
-        )
+
+        if self.use_maccormack:
+            advect_density_maccormack_3d(
+                self.density,
+                density_tmp,
+                self.velocity.u_data,
+                self.velocity.v_data,
+                self.velocity.w_data,
+                self.dx,
+                self.dt,
+                self.nz,
+                self.ny,
+                self.nx,
+            )
+        else:
+            advect_density_kernel_3d(
+                self.density,
+                density_tmp,
+                self.velocity.u_data,
+                self.velocity.v_data,
+                self.velocity.w_data,
+                self.dx,
+                self.dt,
+                self.nz,
+                self.ny,
+                self.nx,
+            )
         self.density = density_tmp
 
     def advect_velocity(self):
-        """Advect velocity using semi-Lagrangian method - matches C++ advectVelocitySL()"""
+        """Advect velocity using MacCormack or semi-Lagrangian method"""
         u = self.velocity.u_data
         v = self.velocity.v_data
         w = self.velocity.w_data
@@ -219,16 +255,26 @@ class SmokeSimulator3D(BaseSimulator):
         v_tmp = np.zeros_like(v)
         w_tmp = np.zeros_like(w)
 
-        # Use optimized Numba kernels
-        advect_u_velocity_kernel_3d(
-            u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx
-        )
-        advect_v_velocity_kernel_3d(
-            v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx
-        )
-        advect_w_velocity_kernel_3d(
-            w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx
-        )
+        if self.use_maccormack:
+            advect_u_velocity_maccormack_3d(
+                u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
+            advect_v_velocity_maccormack_3d(
+                v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
+            advect_w_velocity_maccormack_3d(
+                w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
+        else:
+            advect_u_velocity_kernel_3d(
+                u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
+            advect_v_velocity_kernel_3d(
+                v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
+            advect_w_velocity_kernel_3d(
+                w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx
+            )
 
         # Copy back
         self.velocity.u_data = u_tmp
