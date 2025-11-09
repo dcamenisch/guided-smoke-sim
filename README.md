@@ -33,28 +33,37 @@ python examples/run.py --export --frames 200 --fps 24
 ## Python API
 
 ```python
-from simulation import SmokeSimulator
+from simulation import SimulationConfig
 from visualization import create_2d_animation
 import matplotlib.pyplot as plt
 
-# Create simulator (nz=None for 2D, nz=int for 3D)
-sim = SmokeSimulator(
-    nx=128, ny=192, nz=None,
-    use_maccormack=False,
-    advection_rk_order=3,  # Use SSPRK3
-    vorticity_epsilon=0.0,
-    cfl_target=1.0,
-    dt_max=0.1
+# Define configuration (nz=None for 2D, nz=int for 3D)
+config = SimulationConfig(
+  nx=128,
+  ny=192,
+  nz=None,
+  use_maccormack=False,
+  advection_rk_order=3,  # Use SSPRK3
+  vorticity_epsilon=0.0,
+  cfl_target=1.0,
+  dt_max=0.1,
 )
 
+# Create simulator from configuration
+sim = config.create_simulator()
+
 # Run simulation
-for i in range(100):
-    sim.step()
+for _ in range(100):
+  sim.step()
 
 # Or create animation
 anim = create_2d_animation(sim, frames=200)
 plt.show()
 ```
+
+### SimulationConfig
+
+Use `SimulationConfig` when you need to share presets (CLI examples, test fixtures, batch runs). It centralizes simulator defaults and exposes `create_simulator()` for constructing matching `SmokeSimulator` instances.
 
 ## Advection Methods
 

@@ -2,70 +2,88 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+
+from visualization._animation import run_animation
 
 
-def create_2d_animation(simulator, frames=200, interval=30):
-    """Create animated visualization of 2D smoke simulation
+def _draw_imshow(ax, data, *, title, cmap, vmin=None, vmax=None, aspect="auto"):
+    ax.clear()
+    ax.imshow(
+        data,
+        origin="lower",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        aspect=aspect,
+    )
+    ax.set_title(title)
+    ax.axis("off")
 
-    Args:
-        simulator: SmokeSimulator2D instance
-        frames: Number of frames to animate
-        interval: Time between frames in milliseconds
 
-    Returns:
-        matplotlib FuncAnimation object
-    """
-    # Create figure with multiple views
-    fig, axes = plt.subplots(2, 2, figsize=(10, 12))
-
-    def animate(frame):
-        """Animation function"""
-        print(f"Frame {frame}: Running simulation step...")
-        simulator.step()
-
-        # Clear all axes
-        for ax in axes.flat:
-            ax.clear()
-
-        # Density
-        ax = axes[0, 0]
-        ax.imshow(
-            simulator.density, origin="lower", cmap="hot", vmin=0, vmax=1, aspect="auto"
+def _density_panel(ax, simulator):
+    def update(frame):
+        _draw_imshow(
+            ax,
+            simulator.density,
+            title=f"Density (Frame {frame})",
+            cmap="hot",
+            vmin=0,
+            vmax=1,
         )
-        ax.set_title(f"Density (Frame {frame})")
-        ax.axis("off")
 
-        # Velocity magnitude
-        ax = axes[0, 1]
+    return update
+
+
+def _velocity_panel(ax, simulator):
+    def update(_frame):
         vel_mag = simulator.get_velocity_magnitude()
-        ax.imshow(vel_mag, origin="lower", cmap="viridis", aspect="auto")
-        ax.set_title("Velocity Magnitude")
-        ax.axis("off")
+        _draw_imshow(ax, vel_mag, title="Velocity Magnitude", cmap="viridis")
 
-        # Divergence
-        ax = axes[1, 0]
-        div_max = np.abs(simulator.divergence).max()
-        ax.imshow(
-            simulator.divergence,
-            origin="lower",
+    return update
+
+
+def _divergence_panel(ax, simulator):
+    def update(_frame):
+        divergence = simulator.divergence
+        div_max = np.abs(divergence).max()
+        _draw_imshow(
+            ax,
+            divergence,
+            title=f"Divergence (max={div_max:.2e})",
             cmap="RdBu_r",
             vmin=-0.01,
             vmax=0.01,
-            aspect="auto",
         )
-        ax.set_title(f"Divergence (max={div_max:.2e})")
-        ax.axis("off")
 
-        # Vorticity
-        ax = axes[1, 1]
-        ax.imshow(simulator.vorticity, origin="lower", cmap="RdBu_r", aspect="auto")
-        ax.set_title("Vorticity")
-        ax.axis("off")
+    return update
 
-        return []
 
-    anim = FuncAnimation(fig, animate, frames=frames, interval=interval)
+def _vorticity_panel(ax, simulator):
+    def update(_frame):
+        _draw_imshow(ax, simulator.vorticity, title="Vorticity", cmap="RdBu_r")
+
+    return update
+
+
+def create_2d_animation(simulator, frames=200, interval=30):
+    """Create animated visualization of 2D smoke simulation."""
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 12))
+
+    panels = [
+        _density_panel(axes[0, 0], simulator),
+        _velocity_panel(axes[0, 1], simulator),
+        _divergence_panel(axes[1, 0], simulator),
+        _vorticity_panel(axes[1, 1], simulator),
+    ]
+
     plt.tight_layout()
 
-    return anim
+    return run_animation(
+        fig,
+        simulator,
+        panels,
+        frames,
+        interval,
+        message_fn=lambda frame: f"Frame {frame}: Running simulation step...",
+    )

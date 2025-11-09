@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import matplotlib.pyplot as plt
-from simulation import SmokeSimulator
+from simulation import SimulationConfig
 from visualization import create_2d_animation, create_3d_animation
 
 
@@ -116,28 +116,20 @@ def main():
     )
 
     # Create simulator with appropriate dimensions
+    common_config = dict(
+        use_maccormack=not args.semi_lagrangian,
+        advection_rk_order=args.rk_order,
+        vorticity_epsilon=args.vorticity,
+        cfl_target=args.cfl,
+        dt_max=dt_max,
+    )
+
     if ndim == 2:
-        sim = SmokeSimulator(
-            nx=128,
-            ny=192,
-            nz=None,
-            use_maccormack=not args.semi_lagrangian,
-            advection_rk_order=args.rk_order,
-            vorticity_epsilon=args.vorticity,
-            cfl_target=args.cfl,
-            dt_max=dt_max,
-        )
+        config = SimulationConfig(nx=128, ny=192, **common_config)
     else:
-        sim = SmokeSimulator(
-            nx=64,
-            ny=96,
-            nz=64,
-            use_maccormack=not args.semi_lagrangian,
-            advection_rk_order=args.rk_order,
-            vorticity_epsilon=args.vorticity,
-            cfl_target=args.cfl,
-            dt_max=dt_max,
-        )
+        config = SimulationConfig(nx=64, ny=96, nz=64, **common_config)
+
+    sim = config.create_simulator()
 
     if args.export:
         print(f"Exporting {args.frames} simulation states to {args.output}/...")

@@ -2,7 +2,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+
+from visualization._animation import run_animation
 
 
 def render_slice(simulator, ax, slice_type="mid_z"):
@@ -61,33 +62,24 @@ def render_volume_projection(simulator, ax):
 
 
 def create_3d_animation(simulator, frames=200, interval=30):
-    """Create animated visualization of 3D smoke simulation
+    """Create animated visualization of 3D smoke simulation."""
 
-    Args:
-        simulator: SmokeSimulator3D instance
-        frames: Number of frames to animate
-        interval: Time between frames in milliseconds
-
-    Returns:
-        matplotlib FuncAnimation object
-    """
-    # Create figure with multiple views
     fig, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-    def animate(frame):
-        """Animation function"""
-        print(f"Frame {frame}: Advancing simulation...")
-        simulator.step()
+    panels = [
+        lambda _frame: render_slice(simulator, axes[0, 0], "mid_z"),
+        lambda _frame: render_slice(simulator, axes[0, 1], "mid_y"),
+        lambda _frame: render_slice(simulator, axes[1, 0], "mid_x"),
+        lambda _frame: render_volume_projection(simulator, axes[1, 1]),
+    ]
 
-        # Render different views
-        render_slice(simulator, axes[0, 0], "mid_z")
-        render_slice(simulator, axes[0, 1], "mid_y")
-        render_slice(simulator, axes[1, 0], "mid_x")
-        render_volume_projection(simulator, axes[1, 1])
-
-        return []
-
-    anim = FuncAnimation(fig, animate, frames=frames, interval=interval)
     plt.tight_layout()
 
-    return anim
+    return run_animation(
+        fig,
+        simulator,
+        panels,
+        frames,
+        interval,
+        message_fn=lambda frame: f"Frame {frame}: Advancing simulation...",
+    )

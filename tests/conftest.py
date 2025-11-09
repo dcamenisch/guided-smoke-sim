@@ -8,32 +8,36 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from simulation import SmokeSimulator
+from simulation import SimulationConfig
 from core import MACGrid2D, MACGrid3D
 
 
 @pytest.fixture
 def sim_2d_small():
     """Small 2D simulator for fast tests."""
-    return SmokeSimulator(nx=16, ny=24, nz=None, dt=0.01, max_iterations=10)
+    config = SimulationConfig(nx=16, ny=24, dt=0.01, max_iterations=10)
+    return config.create_simulator()
 
 
 @pytest.fixture
 def sim_2d_medium():
     """Medium 2D simulator for accuracy tests."""
-    return SmokeSimulator(nx=64, ny=96, nz=None, dt=0.01, max_iterations=100)
+    config = SimulationConfig(nx=64, ny=96, dt=0.01, max_iterations=100)
+    return config.create_simulator()
 
 
 @pytest.fixture
 def sim_3d_small():
     """Small 3D simulator for fast tests."""
-    return SmokeSimulator(nx=8, ny=12, nz=8, dt=0.01, max_iterations=10)
+    config = SimulationConfig(nx=8, ny=12, nz=8, dt=0.01, max_iterations=10)
+    return config.create_simulator()
 
 
 @pytest.fixture
 def sim_3d_medium():
     """Medium 3D simulator for accuracy tests."""
-    return SmokeSimulator(nx=32, ny=48, nz=32, dt=0.01, max_iterations=100)
+    config = SimulationConfig(nx=32, ny=48, nz=32, dt=0.01, max_iterations=100)
+    return config.create_simulator()
 
 
 @pytest.fixture
