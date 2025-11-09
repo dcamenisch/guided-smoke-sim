@@ -1,16 +1,17 @@
 """
-2D Smoke Simulation - Example script
+Unified Smoke Simulation - Example script
 
-This matches the C++ reference implementation exactly.
-Run this script to see the 2D smoke simulation in action.
+Run this script to see 2D or 3D smoke simulation in action.
 
 Usage:
-    python run_2d.py                    # Run interactive animation with MacCormack
-    python run_2d.py --semi-lagrangian  # Use semi-Lagrangian advection
-    python run_2d.py --export           # Export simulation states to output/sim_2d/
-    python run_2d.py --export --frames 100 --output my_output/
-    python run_2d.py --export --fps 30  # Export at 30 fps (default: 24)
-    python run_2d.py --vorticity 0.3    # Enable vorticity confinement
+    python run.py                           # Run 2D interactive animation
+    python run.py --3d                      # Run 3D interactive animation
+    python run.py --export                  # Export 2D simulation states
+    python run.py --3d --export             # Export 3D simulation states
+    python run.py --export --frames 100     # Export custom number of frames
+    python run.py --export --fps 30         # Export at 30 fps (default: 24)
+    python run.py --vorticity 0.3           # Enable vorticity confinement
+    python run.py --semi-lagrangian         # Use semi-Lagrangian advection
 """
 
 import sys
@@ -22,11 +23,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import matplotlib.pyplot as plt
 from simulation import SmokeSimulator
-from visualization import create_2d_animation
+from visualization import create_2d_animation, create_3d_animation
 
 
 def main():
-    parser = argparse.ArgumentParser(description="2D Smoke Simulation")
+    parser = argparse.ArgumentParser(description="Smoke Simulation")
+    parser.add_argument(
+        "--3d",
+        action="store_true",
+        dest="three_d",
+        help="Run 3D simulation (default: 2D)",
+    )
     parser.add_argument(
         "--export",
         action="store_true",
@@ -41,8 +48,8 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="output/sim_2d",
-        help="Output directory for exported simulation states (default: output/sim_2d)",
+        default=None,
+        help="Output directory for exported simulation states (default: output/sim_2d or output/sim_3d)",
     )
     parser.add_argument(
         "--interval",
@@ -76,7 +83,14 @@ def main():
 
     args = parser.parse_args()
 
-    print("Starting 2D Smoke Simulation...")
+    # Determine dimensionality
+    ndim = 3 if args.three_d else 2
+
+    # Set default output path if not specified
+    if args.output is None:
+        args.output = f"output/sim_{ndim}d"
+
+    print(f"Starting {ndim}D Smoke Simulation...")
     advection_method = "Semi-Lagrangian" if args.semi_lagrangian else "MacCormack"
     print(f"Using {advection_method} advection")
     print(f"Adaptive time stepping enabled (CFL target={args.cfl})")
@@ -90,17 +104,27 @@ def main():
         f"Target frame rate: {args.fps} fps (frame_time={frame_time:.4f}s, dt_max={dt_max:.4f}s)"
     )
 
-    # Use same resolution as C++ default
-    # nz=None indicates 2D simulation
-    sim = SmokeSimulator(
-        nx=128,
-        ny=192,
-        nz=None,
-        use_maccormack=not args.semi_lagrangian,
-        vorticity_epsilon=args.vorticity,
-        cfl_target=args.cfl,
-        dt_max=dt_max,
-    )
+    # Create simulator with appropriate dimensions
+    if ndim == 2:
+        sim = SmokeSimulator(
+            nx=128,
+            ny=192,
+            nz=None,
+            use_maccormack=not args.semi_lagrangian,
+            vorticity_epsilon=args.vorticity,
+            cfl_target=args.cfl,
+            dt_max=dt_max,
+        )
+    else:
+        sim = SmokeSimulator(
+            nx=64,
+            ny=96,
+            nz=64,
+            use_maccormack=not args.semi_lagrangian,
+            vorticity_epsilon=args.vorticity,
+            cfl_target=args.cfl,
+            dt_max=dt_max,
+        )
 
     if args.export:
         print(f"Exporting {args.frames} simulation states to {args.output}/...")
@@ -141,7 +165,10 @@ def main():
         print(f"Average: {args.frames / sim.simulation_time:.2f} frames/second")
     else:
         print("Starting animation...")
-        anim = create_2d_animation(sim, frames=args.frames, interval=args.interval)
+        if ndim == 2:
+            anim = create_2d_animation(sim, frames=args.frames, interval=args.interval)
+        else:
+            anim = create_3d_animation(sim, frames=args.frames, interval=args.interval)
         plt.show()
 
 
