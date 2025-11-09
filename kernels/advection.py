@@ -10,10 +10,11 @@ from kernels import grid_ops
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx):
+def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx, rk_order=1):
     """Optimized 2D density advection with Numba
 
     Uses semi-Lagrangian advection: trace particle backwards and interpolate
+    Supports 1st order (Euler) and 3rd order (SSPRK3) backtracing
 
     Args:
         density: Current density field (ny, nx)
@@ -23,25 +24,66 @@ def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx):
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for y in prange(1, ny - 1):
         for x in range(1, nx - 1):
-            # Interpolate velocity to cell center
-            last_x_velocity, last_y_velocity = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
+            if rk_order == 1:
+                # First-order Euler backtracing
+                last_x_velocity, last_y_velocity = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
 
-            # Trace backwards
-            last_x = x - dt / dx * last_x_velocity
-            last_y = y - dt / dx * last_y_velocity
+                # Trace backwards
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
 
-            # Clamp to valid density region
-            last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
+                # Clamp to valid density region
+                last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
+
+            elif rk_order == 3:
+                # Third-order SSPRK3 backtracing
+                # Stage 1: Euler step
+                vel_x, vel_y = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
+                k1_x = vel_x
+                k1_y = vel_y
+
+                # Stage 2: Evaluate at position displaced by 0.5 * dt * k1
+                pos2_x = x - 0.5 * dt / dx * k1_x
+                pos2_y = y - 0.5 * dt / dx * k1_y
+                pos2_x, pos2_y = grid_ops.clamp_to_cell_center_2d(pos2_x, pos2_y, nx, ny)
+
+                # Interpolate velocity at stage 2 position
+                k2_x = bilinear_interp(u[:, :-1] if u.shape[1] > nx else u, pos2_x, pos2_y)
+                k2_y = bilinear_interp(v[:-1, :] if v.shape[0] > ny else v, pos2_x, pos2_y)
+
+                # Stage 3: Evaluate at position displaced by 0.75 * dt * k2
+                pos3_x = x - 0.75 * dt / dx * k2_x
+                pos3_y = y - 0.75 * dt / dx * k2_y
+                pos3_x, pos3_y = grid_ops.clamp_to_cell_center_2d(pos3_x, pos3_y, nx, ny)
+
+                # Interpolate velocity at stage 3 position
+                k3_x = bilinear_interp(u[:, :-1] if u.shape[1] > nx else u, pos3_x, pos3_y)
+                k3_y = bilinear_interp(v[:-1, :] if v.shape[0] > ny else v, pos3_x, pos3_y)
+
+                # Final position: weighted combination (2/9, 3/9, 4/9)
+                last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+
+                # Clamp to valid density region
+                last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
+
+            else:
+                # Default to Euler if unknown order
+                last_x_velocity, last_y_velocity = grid_ops.interpolate_velocity_to_cell_center_2d(u, v, y, x)
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
+                last_x, last_y = grid_ops.clamp_to_cell_center_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             density_new[y, x] = bilinear_interp(density, last_x, last_y)
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx):
+def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx, rk_order=1):
     """Optimized 2D u-velocity advection on MAC grid
 
     Args:
@@ -51,28 +93,64 @@ def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx):
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for y in prange(1, ny - 1):
         for x in range(1, nx):  # u goes to nx
-            # u is at x-face, interpolate v to this location
-            last_x_velocity = u[y, x]
+            if rk_order == 1:
+                # First-order Euler backtracing
+                last_x_velocity = u[y, x]
+                last_y_velocity = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
 
-            # Average 4 v values around u-face
-            last_y_velocity = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
+                # Trace backwards
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
 
-            # Trace backwards
-            last_x = x - dt / dx * last_x_velocity
-            last_y = y - dt / dx * last_y_velocity
+                # Clamp to MAC grid boundaries for u
+                last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
 
-            # Clamp to MAC grid boundaries for u
-            last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
+            elif rk_order == 3:
+                # Third-order SSPRK3 backtracing
+                # Stage 1
+                k1_x = u[y, x]
+                k1_y = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
+
+                # Stage 2
+                pos2_x = x - 0.5 * dt / dx * k1_x
+                pos2_y = y - 0.5 * dt / dx * k1_y
+                pos2_x, pos2_y = grid_ops.clamp_to_u_face_2d(pos2_x, pos2_y, nx, ny)
+
+                k2_x = bilinear_interp(u, pos2_x, pos2_y)
+                k2_y = bilinear_interp(v[:-1, :] if v.shape[0] > ny else v, pos2_x, pos2_y)
+
+                # Stage 3
+                pos3_x = x - 0.75 * dt / dx * k2_x
+                pos3_y = y - 0.75 * dt / dx * k2_y
+                pos3_x, pos3_y = grid_ops.clamp_to_u_face_2d(pos3_x, pos3_y, nx, ny)
+
+                k3_x = bilinear_interp(u, pos3_x, pos3_y)
+                k3_y = bilinear_interp(v[:-1, :] if v.shape[0] > ny else v, pos3_x, pos3_y)
+
+                # Final position
+                last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+
+                last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
+
+            else:
+                # Default to Euler
+                last_x_velocity = u[y, x]
+                last_y_velocity = grid_ops.interpolate_v_to_u_face_2d(v, y, x)
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
+                last_x, last_y = grid_ops.clamp_to_u_face_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             u_new[y, x] = bilinear_interp(u, last_x, last_y)
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx):
+def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx, rk_order=1):
     """Optimized 2D v-velocity advection on MAC grid
 
     Args:
@@ -82,21 +160,57 @@ def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx):
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for y in prange(1, ny):  # v goes to ny
         for x in range(1, nx - 1):
-            # v is at y-face, interpolate u to this location
-            last_y_velocity = v[y, x]
+            if rk_order == 1:
+                # First-order Euler backtracing
+                last_y_velocity = v[y, x]
+                last_x_velocity = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
 
-            # Average 4 u values around v-face
-            last_x_velocity = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
+                # Trace backwards
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
 
-            # Trace backwards
-            last_x = x - dt / dx * last_x_velocity
-            last_y = y - dt / dx * last_y_velocity
+                # Clamp to MAC grid boundaries for v
+                last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
 
-            # Clamp to MAC grid boundaries for v
-            last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
+            elif rk_order == 3:
+                # Third-order SSPRK3 backtracing
+                # Stage 1
+                k1_y = v[y, x]
+                k1_x = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
+
+                # Stage 2
+                pos2_x = x - 0.5 * dt / dx * k1_x
+                pos2_y = y - 0.5 * dt / dx * k1_y
+                pos2_x, pos2_y = grid_ops.clamp_to_v_face_2d(pos2_x, pos2_y, nx, ny)
+
+                k2_x = bilinear_interp(u[:, :-1] if u.shape[1] > nx else u, pos2_x, pos2_y)
+                k2_y = bilinear_interp(v, pos2_x, pos2_y)
+
+                # Stage 3
+                pos3_x = x - 0.75 * dt / dx * k2_x
+                pos3_y = y - 0.75 * dt / dx * k2_y
+                pos3_x, pos3_y = grid_ops.clamp_to_v_face_2d(pos3_x, pos3_y, nx, ny)
+
+                k3_x = bilinear_interp(u[:, :-1] if u.shape[1] > nx else u, pos3_x, pos3_y)
+                k3_y = bilinear_interp(v, pos3_x, pos3_y)
+
+                # Final position
+                last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+
+                last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
+
+            else:
+                # Default to Euler
+                last_y_velocity = v[y, x]
+                last_x_velocity = grid_ops.interpolate_u_to_v_face_2d(u, y, x)
+                last_x = x - dt / dx * last_x_velocity
+                last_y = y - dt / dx * last_y_velocity
+                last_x, last_y = grid_ops.clamp_to_v_face_2d(last_x, last_y, nx, ny)
 
             # Bilinear interpolation
             v_new[y, x] = bilinear_interp(v, last_x, last_y)
@@ -106,10 +220,11 @@ def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx):
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx):
+def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx, rk_order=1):
     """Optimized 3D density advection with Numba
 
     Uses semi-Lagrangian advection: trace particle backwards and interpolate
+    Supports 1st order (Euler) and 3rd order (SSPRK3) backtracing
 
     Args:
         density: Current density field (nz, ny, nx)
@@ -120,27 +235,70 @@ def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
-                # Interpolate velocity to cell center
-                last_x_velocity, last_y_velocity, last_z_velocity = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
+                if rk_order == 1:
+                    # First-order Euler backtracing
+                    last_x_velocity, last_y_velocity, last_z_velocity = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
 
-                # Trace backwards
-                last_x = x - dt / dx * last_x_velocity
-                last_y = y - dt / dx * last_y_velocity
-                last_z = z - dt / dx * last_z_velocity
+                    # Trace backwards
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
 
-                # Clamp
-                last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
+                    # Clamp
+                    last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
+
+                elif rk_order == 3:
+                    # Third-order SSPRK3 backtracing
+                    # Stage 1
+                    vel_x, vel_y, vel_z = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
+                    k1_x, k1_y, k1_z = vel_x, vel_y, vel_z
+
+                    # Stage 2
+                    pos2_x = x - 0.5 * dt / dx * k1_x
+                    pos2_y = y - 0.5 * dt / dx * k1_y
+                    pos2_z = z - 0.5 * dt / dx * k1_z
+                    pos2_x, pos2_y, pos2_z = grid_ops.clamp_to_cell_center_3d(pos2_x, pos2_y, pos2_z, nx, ny, nz)
+
+                    k2_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos2_x, pos2_y, pos2_z)
+                    k2_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos2_x, pos2_y, pos2_z)
+                    k2_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos2_x, pos2_y, pos2_z)
+
+                    # Stage 3
+                    pos3_x = x - 0.75 * dt / dx * k2_x
+                    pos3_y = y - 0.75 * dt / dx * k2_y
+                    pos3_z = z - 0.75 * dt / dx * k2_z
+                    pos3_x, pos3_y, pos3_z = grid_ops.clamp_to_cell_center_3d(pos3_x, pos3_y, pos3_z, nx, ny, nz)
+
+                    k3_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos3_x, pos3_y, pos3_z)
+                    k3_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos3_x, pos3_y, pos3_z)
+                    k3_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos3_x, pos3_y, pos3_z)
+
+                    # Final position
+                    last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                    last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+                    last_z = z - dt / dx * (2.0/9.0 * k1_z + 3.0/9.0 * k2_z + 4.0/9.0 * k3_z)
+
+                    last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
+
+                else:
+                    # Default to Euler
+                    last_x_velocity, last_y_velocity, last_z_velocity = grid_ops.interpolate_velocity_to_cell_center_3d(u, v, w, z, y, x)
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
+                    last_x, last_y, last_z = grid_ops.clamp_to_cell_center_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 density_new[z, y, x] = trilinear_interp(density, last_x, last_y, last_z)
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
+def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx, rk_order=1):
     """Optimized 3D u-velocity advection on MAC grid
 
     Args:
@@ -151,33 +309,75 @@ def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
             for x in range(1, nx):  # u goes to nx
-                # u is at x-face, interpolate v and w to this location
-                last_x_velocity = u[z, y, x]
+                if rk_order == 1:
+                    # First-order Euler backtracing
+                    last_x_velocity = u[z, y, x]
+                    last_y_velocity = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                    last_z_velocity = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
 
-                # Average 4 v values around u-face
-                last_y_velocity = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                    # Trace backwards
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
 
-                # Average 4 w values around u-face
-                last_z_velocity = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
+                    # Clamp to MAC grid boundaries for u
+                    last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
-                # Trace backwards
-                last_x = x - dt / dx * last_x_velocity
-                last_y = y - dt / dx * last_y_velocity
-                last_z = z - dt / dx * last_z_velocity
+                elif rk_order == 3:
+                    # Third-order SSPRK3 backtracing
+                    # Stage 1
+                    k1_x = u[z, y, x]
+                    k1_y = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                    k1_z = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
 
-                # Clamp to MAC grid boundaries for u
-                last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
+                    # Stage 2
+                    pos2_x = x - 0.5 * dt / dx * k1_x
+                    pos2_y = y - 0.5 * dt / dx * k1_y
+                    pos2_z = z - 0.5 * dt / dx * k1_z
+                    pos2_x, pos2_y, pos2_z = grid_ops.clamp_to_u_face_3d(pos2_x, pos2_y, pos2_z, nx, ny, nz)
+
+                    k2_x = trilinear_interp(u, pos2_x, pos2_y, pos2_z)
+                    k2_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos2_x, pos2_y, pos2_z)
+                    k2_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos2_x, pos2_y, pos2_z)
+
+                    # Stage 3
+                    pos3_x = x - 0.75 * dt / dx * k2_x
+                    pos3_y = y - 0.75 * dt / dx * k2_y
+                    pos3_z = z - 0.75 * dt / dx * k2_z
+                    pos3_x, pos3_y, pos3_z = grid_ops.clamp_to_u_face_3d(pos3_x, pos3_y, pos3_z, nx, ny, nz)
+
+                    k3_x = trilinear_interp(u, pos3_x, pos3_y, pos3_z)
+                    k3_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos3_x, pos3_y, pos3_z)
+                    k3_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos3_x, pos3_y, pos3_z)
+
+                    # Final position
+                    last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                    last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+                    last_z = z - dt / dx * (2.0/9.0 * k1_z + 3.0/9.0 * k2_z + 4.0/9.0 * k3_z)
+
+                    last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
+
+                else:
+                    # Default to Euler
+                    last_x_velocity = u[z, y, x]
+                    last_y_velocity = grid_ops.interpolate_v_to_u_face_3d(v, z, y, x)
+                    last_z_velocity = grid_ops.interpolate_w_to_u_face_3d(w, z, y, x)
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
+                    last_x, last_y, last_z = grid_ops.clamp_to_u_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 u_new[z, y, x] = trilinear_interp(u, last_x, last_y, last_z)
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
+def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx, rk_order=1):
     """Optimized 3D v-velocity advection on MAC grid
 
     Args:
@@ -188,33 +388,75 @@ def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny):  # v goes to ny
             for x in range(1, nx - 1):
-                # v is at y-face, interpolate u and w to this location
-                last_y_velocity = v[z, y, x]
+                if rk_order == 1:
+                    # First-order Euler backtracing
+                    last_y_velocity = v[z, y, x]
+                    last_x_velocity = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                    last_z_velocity = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
 
-                # Average 4 u values around v-face
-                last_x_velocity = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                    # Trace backwards
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
 
-                # Average 4 w values around v-face
-                last_z_velocity = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
+                    # Clamp to MAC grid boundaries for v
+                    last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
-                # Trace backwards
-                last_x = x - dt / dx * last_x_velocity
-                last_y = y - dt / dx * last_y_velocity
-                last_z = z - dt / dx * last_z_velocity
+                elif rk_order == 3:
+                    # Third-order SSPRK3 backtracing
+                    # Stage 1
+                    k1_y = v[z, y, x]
+                    k1_x = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                    k1_z = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
 
-                # Clamp to MAC grid boundaries for v
-                last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
+                    # Stage 2
+                    pos2_x = x - 0.5 * dt / dx * k1_x
+                    pos2_y = y - 0.5 * dt / dx * k1_y
+                    pos2_z = z - 0.5 * dt / dx * k1_z
+                    pos2_x, pos2_y, pos2_z = grid_ops.clamp_to_v_face_3d(pos2_x, pos2_y, pos2_z, nx, ny, nz)
+
+                    k2_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos2_x, pos2_y, pos2_z)
+                    k2_y = trilinear_interp(v, pos2_x, pos2_y, pos2_z)
+                    k2_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos2_x, pos2_y, pos2_z)
+
+                    # Stage 3
+                    pos3_x = x - 0.75 * dt / dx * k2_x
+                    pos3_y = y - 0.75 * dt / dx * k2_y
+                    pos3_z = z - 0.75 * dt / dx * k2_z
+                    pos3_x, pos3_y, pos3_z = grid_ops.clamp_to_v_face_3d(pos3_x, pos3_y, pos3_z, nx, ny, nz)
+
+                    k3_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos3_x, pos3_y, pos3_z)
+                    k3_y = trilinear_interp(v, pos3_x, pos3_y, pos3_z)
+                    k3_z = trilinear_interp(w[:-1, :, :] if w.shape[0] > nz else w, pos3_x, pos3_y, pos3_z)
+
+                    # Final position
+                    last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                    last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+                    last_z = z - dt / dx * (2.0/9.0 * k1_z + 3.0/9.0 * k2_z + 4.0/9.0 * k3_z)
+
+                    last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
+
+                else:
+                    # Default to Euler
+                    last_y_velocity = v[z, y, x]
+                    last_x_velocity = grid_ops.interpolate_u_to_v_face_3d(u, z, y, x)
+                    last_z_velocity = grid_ops.interpolate_w_to_v_face_3d(w, z, y, x)
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
+                    last_x, last_y, last_z = grid_ops.clamp_to_v_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 v_new[z, y, x] = trilinear_interp(v, last_x, last_y, last_z)
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
+def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx, rk_order=1):
     """Optimized 3D w-velocity advection on MAC grid
 
     Args:
@@ -225,26 +467,68 @@ def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
+        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
     """
     for z in prange(1, nz):  # w goes to nz
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
-                # w is at z-face, interpolate u and v to this location
-                last_z_velocity = w[z, y, x]
+                if rk_order == 1:
+                    # First-order Euler backtracing
+                    last_z_velocity = w[z, y, x]
+                    last_x_velocity = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                    last_y_velocity = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
 
-                # Average 4 u values around w-face
-                last_x_velocity = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                    # Trace backwards
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
 
-                # Average 4 v values around w-face
-                last_y_velocity = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
+                    # Clamp to MAC grid boundaries for w
+                    last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
-                # Trace backwards
-                last_x = x - dt / dx * last_x_velocity
-                last_y = y - dt / dx * last_y_velocity
-                last_z = z - dt / dx * last_z_velocity
+                elif rk_order == 3:
+                    # Third-order SSPRK3 backtracing
+                    # Stage 1
+                    k1_z = w[z, y, x]
+                    k1_x = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                    k1_y = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
 
-                # Clamp to MAC grid boundaries for w
-                last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
+                    # Stage 2
+                    pos2_x = x - 0.5 * dt / dx * k1_x
+                    pos2_y = y - 0.5 * dt / dx * k1_y
+                    pos2_z = z - 0.5 * dt / dx * k1_z
+                    pos2_x, pos2_y, pos2_z = grid_ops.clamp_to_w_face_3d(pos2_x, pos2_y, pos2_z, nx, ny, nz)
+
+                    k2_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos2_x, pos2_y, pos2_z)
+                    k2_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos2_x, pos2_y, pos2_z)
+                    k2_z = trilinear_interp(w, pos2_x, pos2_y, pos2_z)
+
+                    # Stage 3
+                    pos3_x = x - 0.75 * dt / dx * k2_x
+                    pos3_y = y - 0.75 * dt / dx * k2_y
+                    pos3_z = z - 0.75 * dt / dx * k2_z
+                    pos3_x, pos3_y, pos3_z = grid_ops.clamp_to_w_face_3d(pos3_x, pos3_y, pos3_z, nx, ny, nz)
+
+                    k3_x = trilinear_interp(u[:, :, :-1] if u.shape[2] > nx else u, pos3_x, pos3_y, pos3_z)
+                    k3_y = trilinear_interp(v[:, :-1, :] if v.shape[1] > ny else v, pos3_x, pos3_y, pos3_z)
+                    k3_z = trilinear_interp(w, pos3_x, pos3_y, pos3_z)
+
+                    # Final position
+                    last_x = x - dt / dx * (2.0/9.0 * k1_x + 3.0/9.0 * k2_x + 4.0/9.0 * k3_x)
+                    last_y = y - dt / dx * (2.0/9.0 * k1_y + 3.0/9.0 * k2_y + 4.0/9.0 * k3_y)
+                    last_z = z - dt / dx * (2.0/9.0 * k1_z + 3.0/9.0 * k2_z + 4.0/9.0 * k3_z)
+
+                    last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
+
+                else:
+                    # Default to Euler
+                    last_z_velocity = w[z, y, x]
+                    last_x_velocity = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                    last_y_velocity = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
+                    last_x = x - dt / dx * last_x_velocity
+                    last_y = y - dt / dx * last_y_velocity
+                    last_z = z - dt / dx * last_z_velocity
+                    last_x, last_y, last_z = grid_ops.clamp_to_w_face_3d(last_x, last_y, last_z, nx, ny, nz)
 
                 # Trilinear interpolation
                 w_new[z, y, x] = trilinear_interp(w, last_x, last_y, last_z)
@@ -674,12 +958,9 @@ def advect_w_velocity_maccormack_3d(w, w_new, u, v, dx, dt, nz, ny, nx):
         for y in range(1, ny - 1):
             for x in range(1, nx - 1):
                 vel_z = phi_hat[z, y, x]
-                vel_x = (
-                    u[z - 1, y, x] + u[z - 1, y, x + 1] + u[z, y, x] + u[z, y, x + 1]
-                ) * 0.25
-                vel_y = (
-                    v[z - 1, y, x] + v[z - 1, y + 1, x] + v[z, y, x] + v[z, y + 1, x]
-                ) * 0.25
+                # Use grid_ops helpers for consistency
+                vel_x = grid_ops.interpolate_u_to_w_face_3d(u, z, y, x)
+                vel_y = grid_ops.interpolate_v_to_w_face_3d(v, z, y, x)
 
                 next_x = x + dt / dx * vel_x
                 next_y = y + dt / dx * vel_y

@@ -53,6 +53,7 @@ class SmokeSimulator(BaseSimulator):
         tolerance=1e-5,
         max_iterations=1000,
         use_maccormack=True,
+        advection_rk_order=1,
         vorticity_epsilon=0.0,
         cfl_target=1.0,
         dt_min=0.001,
@@ -68,6 +69,7 @@ class SmokeSimulator(BaseSimulator):
             tolerance: Convergence tolerance for pressure solver
             max_iterations: Maximum iterations for pressure solver
             use_maccormack: Use MacCormack advection (True) or semi-Lagrangian (False)
+            advection_rk_order: Order of Runge-Kutta for semi-Lagrangian backtracing (1 or 3)
             vorticity_epsilon: Vorticity confinement strength (0.0 = disabled, 0.1-0.5 typical)
             cfl_target: Target CFL number (typically 1.0-5.0)
             dt_min: Minimum allowed time step
@@ -88,6 +90,7 @@ class SmokeSimulator(BaseSimulator):
         self.nz = nz if nz is not None else 1  # For internal consistency
         self.dx = 1.0 / nx
         self.use_maccormack = use_maccormack
+        self.advection_rk_order = advection_rk_order
         self.vorticity_epsilon = vorticity_epsilon
 
         # Create appropriate MAC grids based on dimensionality
@@ -154,89 +157,107 @@ class SmokeSimulator(BaseSimulator):
             self._set_boundary_conditions_3d()
 
     def _set_boundary_conditions_2d(self):
-        """Set 2D boundary conditions"""
+        """Set 2D boundary conditions
+
+        Open boundaries at top, left, and right (outflow)
+        Closed boundary at bottom (no-slip wall)
+        """
         # x-velocity (u) boundary conditions
         u = self.velocity.u_data
 
-        # Left/right boundaries: du/dx = 0 (Neumann BC)
-        u[:, 0] = u[:, 2]
-        u[:, -1] = u[:, -3]
+        # Left/right boundaries: open (outflow - extrapolate)
+        u[:, 0] = u[:, 1]
+        u[:, -1] = u[:, -2]
 
-        # Top/bottom boundaries: u = 0 (Dirichlet BC)
+        # Bottom boundary: no-slip wall (u = 0)
         u[0, :] = 0
-        u[-1, :] = 0
+
+        # Top boundary: open (outflow - extrapolate)
+        u[-1, :] = u[-2, :]
 
         # y-velocity (v) boundary conditions
         v = self.velocity.v_data
 
-        # Top/bottom boundaries: dv/dy = 0 (Neumann BC)
-        v[0, :] = v[2, :]
-        v[-1, :] = v[-3, :]
+        # Bottom boundary: no penetration (v = 0)
+        v[0, :] = 0
 
-        # Left/right boundaries: v = 0 (Dirichlet BC)
-        v[:, 0] = 0
-        v[:, -1] = 0
+        # Top boundary: open (outflow - extrapolate)
+        v[-1, :] = v[-2, :]
+
+        # Left/right boundaries: open (outflow - extrapolate)
+        v[:, 0] = v[:, 1]
+        v[:, -1] = v[:, -2]
 
         # Pressure boundary conditions
         p = self.pressure
 
-        # All boundaries: dp/dn = 0 (Neumann BC)
+        # All boundaries: dp/dn = 0 (Neumann BC for all)
         p[:, 0] = p[:, 1]
         p[:, -1] = p[:, -2]
         p[0, :] = p[1, :]
         p[-1, :] = p[-2, :]
 
     def _set_boundary_conditions_3d(self):
-        """Set 3D boundary conditions"""
+        """Set 3D boundary conditions
+
+        Open boundaries at top and all sides (outflow)
+        Closed boundary at bottom (no-slip wall)
+        """
         # x-velocity (u) boundary conditions
         u = self.velocity.u_data
 
-        # Left/right boundaries: du/dx = 0 (Neumann BC)
-        u[:, :, 0] = u[:, :, 2]
-        u[:, :, -1] = u[:, :, -3]
+        # Left/right boundaries: open (outflow - extrapolate)
+        u[:, :, 0] = u[:, :, 1]
+        u[:, :, -1] = u[:, :, -2]
 
-        # Top/bottom boundaries: u = 0 (Dirichlet BC)
+        # Bottom boundary: no-slip wall (u = 0)
         u[:, 0, :] = 0
-        u[:, -1, :] = 0
 
-        # Front/back boundaries: u = 0 (Dirichlet BC)
-        u[0, :, :] = 0
-        u[-1, :, :] = 0
+        # Top boundary: open (outflow - extrapolate)
+        u[:, -1, :] = u[:, -2, :]
+
+        # Front/back boundaries: open (outflow - extrapolate)
+        u[0, :, :] = u[1, :, :]
+        u[-1, :, :] = u[-2, :, :]
 
         # y-velocity (v) boundary conditions
         v = self.velocity.v_data
 
-        # Left/right boundaries: v = 0 (Dirichlet BC)
-        v[:, :, 0] = 0
-        v[:, :, -1] = 0
+        # Left/right boundaries: open (outflow - extrapolate)
+        v[:, :, 0] = v[:, :, 1]
+        v[:, :, -1] = v[:, :, -2]
 
-        # Top/bottom boundaries: dv/dy = 0 (Neumann BC)
-        v[:, 0, :] = v[:, 2, :]
-        v[:, -1, :] = v[:, -3, :]
+        # Bottom boundary: no penetration (v = 0)
+        v[:, 0, :] = 0
 
-        # Front/back boundaries: v = 0 (Dirichlet BC)
-        v[0, :, :] = 0
-        v[-1, :, :] = 0
+        # Top boundary: open (outflow - extrapolate)
+        v[:, -1, :] = v[:, -2, :]
+
+        # Front/back boundaries: open (outflow - extrapolate)
+        v[0, :, :] = v[1, :, :]
+        v[-1, :, :] = v[-2, :, :]
 
         # z-velocity (w) boundary conditions
         w = self.velocity.w_data
 
-        # Left/right boundaries: w = 0 (Dirichlet BC)
-        w[:, :, 0] = 0
-        w[:, :, -1] = 0
+        # Left/right boundaries: open (outflow - extrapolate)
+        w[:, :, 0] = w[:, :, 1]
+        w[:, :, -1] = w[:, :, -2]
 
-        # Top/bottom boundaries: w = 0 (Dirichlet BC)
+        # Bottom boundary: no-slip wall (w = 0)
         w[:, 0, :] = 0
-        w[:, -1, :] = 0
 
-        # Front/back boundaries: dw/dz = 0 (Neumann BC)
+        # Top boundary: open (outflow - extrapolate)
+        w[:, -1, :] = w[:, -2, :]
+
+        # Front/back boundaries: open (outflow - extrapolate)
         w[0, :, :] = w[1, :, :]
         w[-1, :, :] = w[-2, :, :]
 
         # Pressure boundary conditions
         p = self.pressure
 
-        # All boundaries: dp/dn = 0 (Neumann BC)
+        # All boundaries: dp/dn = 0 (Neumann BC for all)
         p[:, :, 0] = p[:, :, 1]
         p[:, :, -1] = p[:, :, -2]
         p[:, 0, :] = p[:, 1, :]
@@ -392,6 +413,7 @@ class SmokeSimulator(BaseSimulator):
                     self.dt,
                     self.ny,
                     self.nx,
+                    self.advection_rk_order,
                 )
         else:
             if self.use_maccormack:
@@ -419,6 +441,7 @@ class SmokeSimulator(BaseSimulator):
                     self.nz,
                     self.ny,
                     self.nx,
+                    self.advection_rk_order,
                 )
         self.density = density_tmp
 
@@ -440,10 +463,10 @@ class SmokeSimulator(BaseSimulator):
                 )
             else:
                 advect_u_velocity_kernel_2d(
-                    u, u_tmp, v, self.dx, self.dt, self.ny, self.nx
+                    u, u_tmp, v, self.dx, self.dt, self.ny, self.nx, self.advection_rk_order
                 )
                 advect_v_velocity_kernel_2d(
-                    v, v_tmp, u, self.dx, self.dt, self.ny, self.nx
+                    v, v_tmp, u, self.dx, self.dt, self.ny, self.nx, self.advection_rk_order
                 )
 
             # Copy back
@@ -465,13 +488,13 @@ class SmokeSimulator(BaseSimulator):
                 )
             else:
                 advect_u_velocity_kernel_3d(
-                    u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx
+                    u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
                 )
                 advect_v_velocity_kernel_3d(
-                    v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx
+                    v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
                 )
                 advect_w_velocity_kernel_3d(
-                    w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx
+                    w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
                 )
 
             # Copy back

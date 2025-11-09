@@ -12,6 +12,7 @@ Usage:
     python run.py --export --fps 30         # Export at 30 fps (default: 24)
     python run.py --vorticity 0.3           # Enable vorticity confinement
     python run.py --semi-lagrangian         # Use semi-Lagrangian advection
+    python run.py --semi-lagrangian --rk-order 3  # Use SSPRK3 for improved accuracy
 """
 
 import sys
@@ -80,6 +81,13 @@ def main():
         default=24.0,
         help="Target frames per second for exported animation (default: 24.0)",
     )
+    parser.add_argument(
+        "--rk-order",
+        type=int,
+        choices=[1, 3],
+        default=1,
+        help="Runge-Kutta order for semi-Lagrangian backtracing (1=Euler, 3=SSPRK3) (default: 1)",
+    )
 
     args = parser.parse_args()
 
@@ -91,8 +99,11 @@ def main():
         args.output = f"output/sim_{ndim}d"
 
     print(f"Starting {ndim}D Smoke Simulation...")
-    advection_method = "Semi-Lagrangian" if args.semi_lagrangian else "MacCormack"
-    print(f"Using {advection_method} advection")
+    if args.semi_lagrangian:
+        rk_method = "Euler (RK1)" if args.rk_order == 1 else "SSPRK3"
+        print(f"Using Semi-Lagrangian advection with {rk_method} backtracing")
+    else:
+        print(f"Using MacCormack advection")
     print(f"Adaptive time stepping enabled (CFL target={args.cfl})")
     if args.vorticity > 0.0:
         print(f"Vorticity confinement enabled (epsilon={args.vorticity})")
@@ -111,6 +122,7 @@ def main():
             ny=192,
             nz=None,
             use_maccormack=not args.semi_lagrangian,
+            advection_rk_order=args.rk_order,
             vorticity_epsilon=args.vorticity,
             cfl_target=args.cfl,
             dt_max=dt_max,
@@ -121,6 +133,7 @@ def main():
             ny=96,
             nz=64,
             use_maccormack=not args.semi_lagrangian,
+            advection_rk_order=args.rk_order,
             vorticity_epsilon=args.vorticity,
             cfl_target=args.cfl,
             dt_max=dt_max,

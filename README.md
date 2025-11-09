@@ -1,107 +1,140 @@
 # Smoke Simulation
 
-A 2D and 3D smoke simulator using the MAC (Marker-and-Cell) grid and Numba JIT compilation.
+A high-performance 2D/3D smoke simulator using MAC grids and Numba JIT compilation.
+
+## Quick Start
+
+```bash
+# 2D simulation with MacCormack advection
+python examples/run.py
+
+# 3D simulation
+python examples/run.py --3d
+
+# Semi-Lagrangian with SSPRK3 (higher accuracy)
+python examples/run.py --semi-lagrangian --rk-order 3
+
+# Enable vorticity confinement
+python examples/run.py --vorticity 0.3
+
+# Export simulation states
+python examples/run.py --export --frames 200 --fps 24
+```
+
+## Features
+
+- **Multiple Advection Schemes**:
+  - MacCormack (2nd order, default)
+  - Semi-Lagrangian with RK1 (Euler) or RK3 (SSPRK3)
+- **Adaptive Time Stepping**: CFL-based automatic dt adjustment
+- **Vorticity Confinement**: Optional turbulence enhancement
+- **Numba JIT**: Optimized performance with parallel execution
+
+## Python API
+
+```python
+from simulation import SmokeSimulator
+from visualization import create_2d_animation
+import matplotlib.pyplot as plt
+
+# Create simulator (nz=None for 2D, nz=int for 3D)
+sim = SmokeSimulator(
+    nx=128, ny=192, nz=None,
+    use_maccormack=False,
+    advection_rk_order=3,  # Use SSPRK3
+    vorticity_epsilon=0.0,
+    cfl_target=1.0,
+    dt_max=0.1
+)
+
+# Run simulation
+for i in range(100):
+    sim.step()
+
+# Or create animation
+anim = create_2d_animation(sim, frames=200)
+plt.show()
+```
+
+## Advection Methods
+
+### MacCormack (Default)
+
+- 2nd order accurate with forward/backward correction
+- Reduced numerical dissipation
+- Best for preserving fine details
+
+### Semi-Lagrangian
+
+Backward particle tracing with configurable Runge-Kutta order:
+
+- **RK1 (Euler)**: 1st order, fastest
+- **RK3 (SSPRK3)**: 3rd order, higher accuracy
+  - Coefficients: (2/9, 3/9, 4/9)
+  - Better particle trajectories
+  - 3x computational cost
+
+## Simulation Pipeline
+
+1. **Add Source**: Inject density at source location
+2. **Apply Forces**: Buoyancy proportional to density
+3. **Pressure Projection**: Enforce incompressibility (∇·u = 0)
+4. **Advection**: Transport density and velocity
 
 ## Project Structure
 
 ```bash
 smoke-sim/
-├── core/                   # Grid data structures
-│   ├── grid_2d.py         # 2D MAC grid
-│   └── grid_3d.py         # 3D MAC grid
-├── kernels/               # Numba-optimized computational kernels
+├── core/                   # MAC grid data structures
+│   ├── grid_2d.py         # 2D staggered grid (u, v velocity components)
+│   └── grid_3d.py         # 3D staggered grid (u, v, w velocity components)
+├── kernels/               # Numba JIT-compiled computational kernels
+│   ├── advection.py       # Semi-Lagrangian (RK1/RK3) & MacCormack advection
+│   ├── poisson.py         # Red-Black Gauss-Seidel pressure solver
+│   ├── velocity.py        # Pressure gradient & velocity correction
+│   ├── differential.py    # Divergence & vorticity computation
 │   ├── interpolation.py   # Bilinear/trilinear interpolation
-│   ├── poisson.py         # Poisson equation solvers (Jacobi)
-│   ├── advection.py       # Semi-Lagrangian advection
-│   ├── velocity.py        # Velocity correction (pressure projection)
-│   └── operators.py       # Differential operators (vorticity)
-├── simulation/            # Simulation engines
-│   ├── base_simulator.py  # Shared simulation logic
-│   ├── simulator_2d.py    # 2D smoke simulator
-│   └── simulator_3d.py    # 3D smoke simulator
-├── visualization/         # Rendering and animation
-│   ├── render_2d.py       # 2D visualization utilities
-│   └── render_3d.py       # 3D visualization utilities
-├── examples/              # Example scripts
-│   ├── run_2d.py         # Run 2D simulation
-│   └── run_3d.py         # Run 3D simulation
-└── (legacy files)         # Original files kept for reference
-    ├── simulation_2d.py
-    ├── simulation.py
-    └── macgrid.py
+│   └── grid_ops.py        # MAC grid utilities (clamping, indexing)
+├── physics/               # Physical force models
+│   ├── buoyancy.py        # Buoyancy force (proportional to density)
+│   ├── vorticity_confinement.py  # Turbulence enhancement
+│   └── gravity.py         # Gravitational acceleration
+├── simulation/            # Simulation engine
+│   ├── base_simulator.py  # Abstract base class with simulation loop
+│   └── simulator.py       # Unified 2D/3D implementation
+├── visualization/         # Rendering utilities
+│   ├── render_2d.py       # 2D matplotlib visualization
+│   └── render_3d.py       # 3D volumetric rendering
+├── examples/              # Example scripts & usage
+│   └── run.py            # Main entry point with CLI arguments
+├── utils/                 # Additional utilities
+│   └── npz_to_vdb.py     # Convert simulation data to OpenVDB format
+└── references/            # Reference implementations
 ```
 
-## Quick Start
-
-Make sure you're in the project root directory before running the examples.
-
-### Run 2D Simulation
+## Command-Line Options
 
 ```bash
-python examples/run_2d.py
+--3d                    3D simulation (default: 2D)
+--semi-lagrangian       Use semi-Lagrangian advection
+--rk-order {1,3}        Runge-Kutta order for backtracing
+--vorticity FLOAT       Vorticity confinement strength (0.0-0.5)
+--cfl FLOAT             Target CFL number (default: 1.0)
+--export                Export states to NPZ files
+--frames INT            Number of frames (default: 200)
+--fps FLOAT             Target framerate (default: 24)
 ```
 
-### Run 3D Simulation
+## Technical Details
 
-```bash
-python examples/run_3d.py
-```
+### MAC Grid Layout
 
-**Note**: Close the matplotlib window to exit the animation.
+**2D**: Pressure/density at cell centers (ny, nx), u at x-faces (ny, nx+1), v at y-faces (ny+1, nx)
 
-### Programmatic Usage
-
-```python
-from simulation import SmokeSimulator2D
-from visualization import create_2d_animation
-import matplotlib.pyplot as plt
-
-# Create simulator
-sim = SmokeSimulator2D(nx=128, ny=192)
-
-# Run simulation steps manually
-for i in range(100):
-    sim.step()
-
-# Or create an animation
-anim = create_2d_animation(sim, frames=200, interval=30)
-plt.show()
-```
-
-## Implementation Details
-
-### Simulation Pipeline
-
-Each time step follows this sequence:
-
-1. **Add Source**: Inject smoke density at source location
-2. **Apply Forces**: Add buoyancy force proportional to density
-3. **Pressure Projection**:
-   - Set boundary conditions
-   - Compute velocity divergence
-   - Solve Poisson equation for pressure
-   - Correct velocity to be divergence-free
-   - Compute vorticity
-4. **Advection**:
-   - Advect density using semi-Lagrangian method
-   - Advect velocity components
+**3D**: Pressure/density at cell centers (nz, ny, nx), u/v/w at corresponding faces
 
 ### Boundary Conditions
 
-- **Velocity**: Mixed Dirichlet (no-slip) and Neumann (no-penetration) conditions
-- **Pressure**: Neumann conditions (zero gradient at boundaries)
-
-### Grid Layout (MAC Grid)
-
-2D Example:
-
-- Pressure/Density: Cell centers (ny, nx)
-- u-velocity: x-faces (ny, nx+1)
-- v-velocity: y-faces (ny+1, nx)
-
-3D Example:
-
-- Pressure/Density: Cell centers (nz, ny, nx)
-- u-velocity: x-faces (nz, ny, nx+1)
-- v-velocity: y-faces (nz, ny+1, nx)
-- w-velocity: z-faces (nz+1, ny, nx)
+- **Bottom**: No-slip wall (velocity = 0) - smoke cannot escape
+- **Top & Sides**: Open outflow (extrapolation) - smoke can freely exit
+- **Pressure**: Zero-gradient (Neumann) at all boundaries
