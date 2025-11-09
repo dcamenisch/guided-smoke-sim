@@ -8,15 +8,9 @@ from numba import jit, prange
 def solve_poisson_rb_gauss_seidel_2d(
     pressure, divergence, dx, dt, rho, max_iter, tolerance, ny, nx
 ):
-    """Red-Black Gauss-Seidel solver for 2D Poisson equation
+    """Red-Black Gauss-Seidel solver for Poisson equation: ∇²p = -ρ/dt * ∇·u.
 
-    Uses a checkerboard pattern to update the grid in two phases:
-    1. Red cells (i+j is even) - can all be updated in parallel
-    2. Black cells (i+j is odd) - can all be updated in parallel
-
-    This method typically converges ~2x faster than Jacobi iteration.
-
-    Solves: ∇²p = -ρ/dt * ∇·u
+    Uses checkerboard pattern for parallel updates (converges ~2x faster than Jacobi).
 
     Args:
         pressure: Initial pressure field (ny, nx)
@@ -90,15 +84,9 @@ def solve_poisson_rb_gauss_seidel_2d(
 def solve_poisson_rb_gauss_seidel_3d(
     pressure, divergence, dx, dt, rho, max_iter, tolerance, nz, ny, nx
 ):
-    """Red-Black Gauss-Seidel solver for 3D Poisson equation
+    """Red-Black Gauss-Seidel solver for Poisson equation: ∇²p = -ρ/dt * ∇·u.
 
-    Uses a 3D checkerboard pattern to update the grid in two phases:
-    1. Red cells (i+j+k is even) - can all be updated in parallel
-    2. Black cells (i+j+k is odd) - can all be updated in parallel
-
-    This method typically converges ~2x faster than Jacobi iteration.
-
-    Solves: ∇²p = -ρ/dt * ∇·u
+    Uses 3D checkerboard pattern for parallel updates (converges ~2x faster than Jacobi).
 
     Args:
         pressure: Initial pressure field (nz, ny, nx)

@@ -1,15 +1,4 @@
-"""
-Utility to convert NPZ simulation state files to OpenVDB format.
-
-This script reads .npz files exported from the smoke simulation and converts
-the density field to OpenVDB (.vdb) format for use in rendering software
-like Houdini, Blender, etc.
-
-Usage:
-    python npz_to_vdb.py <input_npz_file> <output_vdb_file>
-    python npz_to_vdb.py <input_directory> <output_directory>
-    python npz_to_vdb.py --help
-"""
+"""Convert NPZ simulation state files to OpenVDB format for rendering."""
 
 import sys
 import argparse
@@ -141,23 +130,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert NPZ simulation state files to OpenVDB format",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Convert a single file
+        epilog="""Examples:
   python npz_to_vdb.py state_0000.npz output.vdb
-  
-  # Convert all files in a directory (auto-generates output dir with -vdb suffix)
   python npz_to_vdb.py results/experiment-name
-  # Creates: results/experiment-name-vdb/
-  
-  # Or specify custom output directory
-  python npz_to_vdb.py results/experiment-name results/custom-output/
-  
-  # Convert with custom field
-  python npz_to_vdb.py state.npz output.vdb --field vorticity
-  
-  # Batch convert with pattern
-  python npz_to_vdb.py input/ output/ --pattern "state_*.npz"
+  python npz_to_vdb.py input/ output/ --field vorticity
         """,
     )
 

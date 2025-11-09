@@ -129,12 +129,11 @@ smoke-sim/
 
 ### MAC Grid Layout
 
-**2D**: Pressure/density at cell centers (ny, nx), u at x-faces (ny, nx+1), v at y-faces (ny+1, nx)
-
-**3D**: Pressure/density at cell centers (nz, ny, nx), u/v/w at corresponding faces
+- **2D**: Pressure/density at centers (ny, nx), u at x-faces (ny, nx+1), v at y-faces (ny+1, nx)
+- **3D**: Pressure/density at centers (nz, ny, nx), u/v/w at corresponding faces
 
 ### Boundary Conditions
 
-- **Bottom**: No-slip wall (velocity = 0) - smoke cannot escape
-- **Top & Sides**: Open outflow (extrapolation) - smoke can freely exit
-- **Pressure**: Zero-gradient (Neumann) at all boundaries
+- **Bottom**: No-slip (velocity = 0)
+- **Top & Sides**: Open outflow (extrapolation)
+- **Pressure**: Zero-gradient (Neumann)

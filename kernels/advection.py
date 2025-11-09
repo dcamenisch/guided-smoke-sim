@@ -1,4 +1,4 @@
-"""Advection kernels using semi-Lagrangian method."""
+"""Semi-Lagrangian advection kernels with MacCormack and SSPRK3 support."""
 
 import numpy as np
 from numba import jit, prange
@@ -6,15 +6,9 @@ from kernels.interpolation import bilinear_interp, trilinear_interp
 from kernels import grid_ops
 
 
-# ============= 2D Advection Kernels =============
-
-
 @jit(nopython=True, parallel=True, cache=True)
 def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx, rk_order=1):
-    """Optimized 2D density advection with Numba
-
-    Uses semi-Lagrangian advection: trace particle backwards and interpolate
-    Supports 1st order (Euler) and 3rd order (SSPRK3) backtracing
+    """2D density advection with semi-Lagrangian method.
 
     Args:
         density: Current density field (ny, nx)
@@ -24,7 +18,7 @@ def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx, rk_orde
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for y in prange(1, ny - 1):
         for x in range(1, nx - 1):
@@ -84,7 +78,7 @@ def advect_density_kernel_2d(density, density_new, u, v, dx, dt, ny, nx, rk_orde
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx, rk_order=1):
-    """Optimized 2D u-velocity advection on MAC grid
+    """2D u-velocity advection on MAC grid.
 
     Args:
         u: Current x-velocity (ny, nx+1)
@@ -93,7 +87,7 @@ def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx, rk_order=1):
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for y in prange(1, ny - 1):
         for x in range(1, nx):  # u goes to nx
@@ -151,7 +145,7 @@ def advect_u_velocity_kernel_2d(u, u_new, v, dx, dt, ny, nx, rk_order=1):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx, rk_order=1):
-    """Optimized 2D v-velocity advection on MAC grid
+    """2D v-velocity advection on MAC grid.
 
     Args:
         v: Current y-velocity (ny+1, nx)
@@ -160,7 +154,7 @@ def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx, rk_order=1):
         dx: Grid spacing
         dt: Time step
         ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for y in prange(1, ny):  # v goes to ny
         for x in range(1, nx - 1):
@@ -216,15 +210,9 @@ def advect_v_velocity_kernel_2d(v, v_new, u, dx, dt, ny, nx, rk_order=1):
             v_new[y, x] = bilinear_interp(v, last_x, last_y)
 
 
-# ============= 3D Advection Kernels =============
-
-
 @jit(nopython=True, parallel=True, cache=True)
 def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx, rk_order=1):
-    """Optimized 3D density advection with Numba
-
-    Uses semi-Lagrangian advection: trace particle backwards and interpolate
-    Supports 1st order (Euler) and 3rd order (SSPRK3) backtracing
+    """3D density advection with semi-Lagrangian method.
 
     Args:
         density: Current density field (nz, ny, nx)
@@ -235,7 +223,7 @@ def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx, 
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
@@ -299,7 +287,7 @@ def advect_density_kernel_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx, 
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx, rk_order=1):
-    """Optimized 3D u-velocity advection on MAC grid
+    """3D u-velocity advection on MAC grid.
 
     Args:
         u: Current x-velocity (nz, ny, nx+1)
@@ -309,7 +297,7 @@ def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx, rk_order=1):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny - 1):
@@ -378,7 +366,7 @@ def advect_u_velocity_kernel_3d(u, u_new, v, w, dx, dt, nz, ny, nx, rk_order=1):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx, rk_order=1):
-    """Optimized 3D v-velocity advection on MAC grid
+    """3D v-velocity advection on MAC grid.
 
     Args:
         v: Current y-velocity (nz, ny+1, nx)
@@ -388,7 +376,7 @@ def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx, rk_order=1):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for z in prange(1, nz - 1):
         for y in range(1, ny):  # v goes to ny
@@ -457,7 +445,7 @@ def advect_v_velocity_kernel_3d(v, v_new, u, w, dx, dt, nz, ny, nx, rk_order=1):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx, rk_order=1):
-    """Optimized 3D w-velocity advection on MAC grid
+    """3D w-velocity advection on MAC grid.
 
     Args:
         w: Current z-velocity (nz+1, ny, nx)
@@ -467,7 +455,7 @@ def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx, rk_order=1):
         dx: Grid spacing
         dt: Time step
         nz, ny, nx: Grid dimensions
-        rk_order: Order of Runge-Kutta for backtracing (1 or 3)
+        rk_order: Runge-Kutta order (1=Euler, 3=SSPRK3)
     """
     for z in prange(1, nz):  # w goes to nz
         for y in range(1, ny - 1):
@@ -539,12 +527,7 @@ def advect_w_velocity_kernel_3d(w, w_new, u, v, dx, dt, nz, ny, nx, rk_order=1):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_density_maccormack_2d(density, density_new, u, v, dx, dt, ny, nx):
-    """MacCormack advection for 2D density field
-
-    Two-step method that reduces numerical dissipation:
-    1. Forward step (standard semi-Lagrangian)
-    2. Backward correction step
-    3. Clamping to prevent overshoots
+    """MacCormack advection for 2D density field with reduced dissipation.
 
     Args:
         density: Current density field (ny, nx)
@@ -605,7 +588,7 @@ def advect_density_maccormack_2d(density, density_new, u, v, dx, dt, ny, nx):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_u_velocity_maccormack_2d(u, u_new, v, dx, dt, ny, nx):
-    """MacCormack advection for 2D u-velocity on MAC grid
+    """MacCormack advection for 2D u-velocity on MAC grid.
 
     Args:
         u: Current x-velocity (ny, nx+1)
@@ -657,7 +640,7 @@ def advect_u_velocity_maccormack_2d(u, u_new, v, dx, dt, ny, nx):
 
 @jit(nopython=True, parallel=True, cache=True)
 def advect_v_velocity_maccormack_2d(v, v_new, u, dx, dt, ny, nx):
-    """MacCormack advection for 2D v-velocity on MAC grid
+    """MacCormack advection for 2D v-velocity on MAC grid.
 
     Args:
         v: Current y-velocity (ny+1, nx)
@@ -715,12 +698,9 @@ def advect_v_velocity_maccormack_2d(v, v_new, u, dx, dt, ny, nx):
             v_new[y, x] = max(neighbors_min, min(correction, neighbors_max))
 
 
-# ============= MacCormack Advection (3D) =============
-
-
 @jit(nopython=True, parallel=True, cache=True)
 def advect_density_maccormack_3d(density, density_new, u, v, w, dx, dt, nz, ny, nx):
-    """MacCormack advection for 3D density field
+    """MacCormack advection for 3D density field with reduced dissipation.
 
     Args:
         density: Current density field (nz, ny, nx)

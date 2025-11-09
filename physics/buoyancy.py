@@ -13,22 +13,18 @@ def apply_buoyancy_force_2d(
     nx: int,
     alpha: float = 0.1,
 ):
-    """Apply buoyancy force to 2D velocity field
-
-    Buoyancy force is proportional to density and acts in the upward (y) direction.
+    """Apply buoyancy force proportional to density in upward direction.
 
     Args:
         force: MACGrid2D to store forces
         velocity: MACGrid2D containing current velocities
         density: Density field (ny, nx)
         dt: Time step
-        nx: Grid resolution in x (used for scaling)
+        nx: Grid resolution for scaling
         alpha: Buoyancy coefficient (default: 0.1)
     """
-    # Reset forces
     grid_ops.reset_forces_2d(force)
 
-    # Scaling factor to match C++ implementation
     scaling_factor = 64.0 / nx
 
     # Buoyancy force proportional to density
@@ -52,22 +48,18 @@ def apply_buoyancy_force_3d(
     nx: int,
     alpha: float = 0.1,
 ):
-    """Apply buoyancy force to 3D velocity field
-
-    Buoyancy force is proportional to density and acts in the upward (y) direction.
+    """Apply buoyancy force proportional to density in upward direction.
 
     Args:
         force: MACGrid3D to store forces
         velocity: MACGrid3D containing current velocities
         density: Density field (nz, ny, nx)
         dt: Time step
-        nx: Grid resolution in x (used for scaling)
+        nx: Grid resolution for scaling
         alpha: Buoyancy coefficient (default: 0.1)
     """
-    # Reset forces
     grid_ops.reset_forces_3d(force)
 
-    # Scaling factor to match C++ implementation
     scaling_factor = 64.0 / nx
 
     # Buoyancy force proportional to density

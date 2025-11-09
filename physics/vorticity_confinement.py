@@ -1,8 +1,4 @@
-"""Vorticity confinement force implementations.
-
-Vorticity confinement restores small-scale turbulent details lost to numerical
-dissipation by amplifying vorticity in the flow.
-"""
+"""Vorticity confinement to restore small-scale turbulent details."""
 
 import numpy as np
 from numba import jit
@@ -17,15 +13,15 @@ def compute_vorticity_magnitude_gradient_2d(
     ny: int,
     nx: int,
 ) -> tuple:
-    """Compute gradient of vorticity magnitude for 2D
+    """Compute gradient of vorticity magnitude.
 
     Args:
-        vorticity: Vorticity field (ny, nx) - scalar in 2D
+        vorticity: Vorticity field (ny, nx)
         dx: Grid spacing
         ny, nx: Grid dimensions
 
     Returns:
-        Tuple of (grad_x, grad_y) arrays
+        (grad_x, grad_y) arrays
     """
     grad_x = np.zeros((ny, nx), dtype=np.float32)
     grad_y = np.zeros((ny, nx), dtype=np.float32)
@@ -50,15 +46,15 @@ def compute_vorticity_magnitude_gradient_3d(
     ny: int,
     nx: int,
 ) -> tuple:
-    """Compute gradient of vorticity magnitude for 3D
+    """Compute gradient of vorticity magnitude.
 
     Args:
-        vorticity: Vorticity field (nz, ny, nx, 3) - vector in 3D
+        vorticity: Vorticity field (nz, ny, nx, 3)
         dx: Grid spacing
         nz, ny, nx: Grid dimensions
 
     Returns:
-        Tuple of (grad_x, grad_y, grad_z) arrays
+        (grad_x, grad_y, grad_z) arrays
     """
     grad_x = np.zeros((nz, ny, nx), dtype=np.float32)
     grad_y = np.zeros((nz, ny, nx), dtype=np.float32)
@@ -100,16 +96,12 @@ def apply_vorticity_confinement_2d(
     dt: float,
     epsilon: float = 0.1,
 ):
-    """Apply vorticity confinement force to 2D velocity field
-
-    Vorticity confinement adds a force perpendicular to the gradient of
-    vorticity magnitude, scaled by the vorticity itself. This restores
-    rotational features that are lost due to numerical dissipation.
+    """Apply vorticity confinement force to restore rotational features.
 
     Args:
         force: MACGrid2D to store forces
         velocity: MACGrid2D containing current velocities
-        vorticity: Vorticity field (ny, nx) - scalar in 2D
+        vorticity: Vorticity field (ny, nx)
         dx: Grid spacing
         dt: Time step
         epsilon: Confinement strength (default: 0.1)
@@ -162,23 +154,12 @@ def apply_vorticity_confinement_3d(
     dt: float,
     epsilon: float = 0.1,
 ):
-    """Apply vorticity confinement force to 3D velocity field
-
-    Vorticity confinement adds a force perpendicular to the gradient of
-    vorticity magnitude, scaled by the vorticity vector. This restores
-    rotational features that are lost due to numerical dissipation.
-
-    Formula: f = ε * h * (N × ω)
-    where:
-    - ε is the confinement parameter
-    - h is the grid spacing (dx)
-    - N is the normalized gradient of |ω|
-    - ω is the vorticity vector
+    """Apply vorticity confinement force: f = ε * h * (N × ω).
 
     Args:
         force: MACGrid3D to store forces
         velocity: MACGrid3D containing current velocities
-        vorticity: Vorticity field (nz, ny, nx, 3) - vector in 3D
+        vorticity: Vorticity field (nz, ny, nx, 3)
         dx: Grid spacing
         dt: Time step
         epsilon: Confinement strength (default: 0.1)

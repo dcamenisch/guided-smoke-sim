@@ -5,10 +5,10 @@ from abc import ABC, abstractmethod
 
 
 class BaseSimulator(ABC):
-    """Abstract base class for smoke simulators
+    """Abstract base class for smoke simulators.
 
     Provides common simulation workflow and shared methods.
-    Subclasses must implement dimension-specific details.
+    Subclasses implement dimension-specific details.
     """
 
     def __init__(
@@ -20,15 +20,15 @@ class BaseSimulator(ABC):
         dt_min=0.001,
         dt_max=0.1,
     ):
-        """Initialize base simulator parameters
+        """Initialize simulator parameters.
 
         Args:
-            dt: Initial time step (used as dt_max if not specified)
-            tolerance: Convergence tolerance for pressure solver
-            max_iterations: Maximum iterations for pressure solver
+            dt: Initial time step
+            tolerance: Pressure solver convergence tolerance
+            max_iterations: Maximum pressure solver iterations
             cfl_target: Target CFL number (typically 1.0-5.0)
-            dt_min: Minimum allowed time step
-            dt_max: Maximum allowed time step
+            dt_min: Minimum time step
+            dt_max: Maximum time step
         """
         self.dt = dt
         self.dt_initial = dt  # Store initial dt for reference
@@ -41,39 +41,26 @@ class BaseSimulator(ABC):
         self.simulation_time = 0.0  # Track total accumulated simulation time
 
     def step(self):
-        """Main simulation step with adaptive time stepping"""
-        # Compute adaptive time step based on CFL condition
+        """Execute one simulation step with adaptive time stepping."""
         self.dt = self.compute_adaptive_timestep()
-
-        # Add smoke source
         self.add_source()
-
-        # Apply forces
         self.apply_forces()
-
-        # Remove divergence (pressure projection)
         self.solve_pressure()
-
-        # Advect everything
         self.advect()
-
-        # Reset forces
         self.force.reset()
-
-        # Update simulation time
         self.simulation_time += self.dt
 
     def solve_pressure(self):
-        """Full pressure solve step - matches C++ solvePressure()"""
+        """Solve pressure projection to enforce incompressibility."""
         self.set_boundary_conditions()
         self.compute_divergence()
         self.solve_poisson()
         self.correct_velocity()
         self.compute_vorticity()
-        self.compute_divergence()  # For debugging
+        self.compute_divergence()
 
     def advect(self):
-        """Advect all quantities - matches C++ advectValues()"""
+        """Advect all quantities through the velocity field."""
         self.advect_density()
         self.advect_velocity()
 

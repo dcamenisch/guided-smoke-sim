@@ -36,10 +36,9 @@ from kernels.differential import (
 
 
 class SmokeSimulator(BaseSimulator):
-    """Unified smoke simulator supporting both 2D and 3D
+    """Unified smoke simulator for 2D and 3D.
 
-    Matches the C++ reference implementation exactly.
-    Automatically detects dimensionality based on nz parameter:
+    Dimensionality is determined by nz parameter:
     - nz=None → 2D simulation
     - nz=int → 3D simulation
     """
@@ -59,21 +58,21 @@ class SmokeSimulator(BaseSimulator):
         dt_min=0.001,
         dt_max=0.1,
     ):
-        """Initialize smoke simulator
+        """Initialize smoke simulator.
 
         Args:
-            nx: Grid resolution in x-direction
-            ny: Grid resolution in y-direction
-            nz: Grid resolution in z-direction (None for 2D, int for 3D)
-            dt: Initial time step (used as dt_max if not specified)
-            tolerance: Convergence tolerance for pressure solver
-            max_iterations: Maximum iterations for pressure solver
-            use_maccormack: Use MacCormack advection (True) or semi-Lagrangian (False)
-            advection_rk_order: Order of Runge-Kutta for semi-Lagrangian backtracing (1 or 3)
-            vorticity_epsilon: Vorticity confinement strength (0.0 = disabled, 0.1-0.5 typical)
-            cfl_target: Target CFL number (typically 1.0-5.0)
-            dt_min: Minimum allowed time step
-            dt_max: Maximum allowed time step (defaults to dt parameter)
+            nx: Grid resolution in x
+            ny: Grid resolution in y
+            nz: Grid resolution in z (None for 2D)
+            dt: Initial time step
+            tolerance: Pressure solver convergence tolerance
+            max_iterations: Pressure solver max iterations
+            use_maccormack: Use MacCormack (True) or semi-Lagrangian (False)
+            advection_rk_order: RK order for semi-Lagrangian (1 or 3)
+            vorticity_epsilon: Vorticity confinement strength (0.0=off)
+            cfl_target: Target CFL number
+            dt_min: Minimum time step
+            dt_max: Maximum time step
         """
         super().__init__(
             dt=dt,
@@ -112,24 +111,19 @@ class SmokeSimulator(BaseSimulator):
             self.vorticity = np.zeros((nz, ny, nx, 3), dtype=np.float32)
 
     def add_source(self):
-        """Add smoke source - dimension-specific locations"""
+        """Add smoke source at specified location."""
         if self.ndim == 2:
-            # 2D: matches C++ applySource(0.45, 0.55, 0.1, 0.15)
             y_start, y_end = int(0.1 * self.ny), int(0.15 * self.ny) + 1
             x_start, x_end = int(0.45 * self.nx), int(0.55 * self.nx) + 1
             self.density[y_start:y_end, x_start:x_end] = 1.0
         else:
-            # 3D: matches C++ applySource()
             z_start, z_end = int(0.475 * self.nz), int(0.525 * self.nz) + 1
             y_start, y_end = int(0.0 * self.ny), int(0.025 * self.ny) + 1
             x_start, x_end = int(0.475 * self.nx), int(0.525 * self.nx) + 1
             self.density[z_start:z_end, y_start:y_end, x_start:x_end] = 1.0
 
     def apply_forces(self):
-        """Apply buoyancy force and update velocity
-
-        Matches C++ addBuoyancyForce() + applyForce()
-        """
+        """Apply buoyancy force to velocity field."""
         if self.ndim == 2:
             apply_buoyancy_force_2d(
                 self.force,
@@ -150,7 +144,7 @@ class SmokeSimulator(BaseSimulator):
             )
 
     def set_boundary_conditions(self):
-        """Set boundary conditions - matches C++ setBoundaryConditions()"""
+        """Set boundary conditions on velocity field."""
         if self.ndim == 2:
             self._set_boundary_conditions_2d()
         else:
@@ -266,7 +260,7 @@ class SmokeSimulator(BaseSimulator):
         p[-1, :, :] = p[-2, :, :]
 
     def compute_divergence(self):
-        """Compute velocity divergence - matches C++ computeDivergence()"""
+        """Compute velocity divergence."""
         u = self.velocity.u_data
         v = self.velocity.v_data
 
@@ -318,7 +312,7 @@ class SmokeSimulator(BaseSimulator):
             )
 
     def correct_velocity(self):
-        """Correct velocity with pressure gradient - matches C++ correctVelocity()"""
+        """Correct velocity with pressure gradient."""
         if self.ndim == 2:
             correct_velocity_kernel_2d(
                 self.velocity.u_data,
@@ -343,7 +337,7 @@ class SmokeSimulator(BaseSimulator):
             )
 
     def compute_vorticity(self):
-        """Compute vorticity field - matches C++ computeVorticity()"""
+        """Compute vorticity field."""
         if self.ndim == 2:
             compute_vorticity_kernel_2d(
                 self.vorticity,
@@ -530,14 +524,10 @@ class SmokeSimulator(BaseSimulator):
             return np.sqrt(u_center**2 + v_center**2 + w_center**2)
 
     def compute_adaptive_timestep(self):
-        """Compute adaptive time step based on CFL condition
-
-        The CFL (Courant-Friedrichs-Lewy) condition ensures numerical stability
-        by requiring that fluid particles don't travel more than one grid cell
-        per time step.
+        """Compute adaptive time step based on CFL condition.
 
         Returns:
-            float: Adaptive time step value clamped between dt_min and dt_max
+            Adaptive dt clamped between dt_min and dt_max
         """
         if self.ndim == 2:
             # Find maximum velocity components in 2D
