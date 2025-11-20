@@ -112,15 +112,53 @@ class SmokeSimulator(BaseSimulator):
 
     def add_source(self):
         """Add smoke source at specified location."""
+        # if self.ndim == 2:
+        #     y_start, y_end = int(0.1 * self.ny), int(0.15 * self.ny) + 1
+        #     x_start, x_end = int(0.45 * self.nx), int(0.55 * self.nx) + 1
+        #     self.density[y_start:y_end, x_start:x_end] = 1.0
+        # else:
+        #     z_start, z_end = int(0.475 * self.nz), int(0.525 * self.nz) + 1
+        #     y_start, y_end = int(0.0 * self.ny), int(0.025 * self.ny) + 1
+        #     x_start, x_end = int(0.475 * self.nx), int(0.525 * self.nx) + 1
+        #     self.density[z_start:z_end, y_start:y_end, x_start:x_end] = 1.0
+
+        radius = 0.1
+        density_value = 0.75
+        center_x = 0.5
+        center_y = 0.15
+        center_z = 0.5
+
         if self.ndim == 2:
-            y_start, y_end = int(0.1 * self.ny), int(0.15 * self.ny) + 1
-            x_start, x_end = int(0.45 * self.nx), int(0.55 * self.nx) + 1
-            self.density[y_start:y_end, x_start:x_end] = 1.0
+            # Create 2D circle (sphere cross-section)
+            # Grid coordinates normalized to [0, 1]
+            y_coords = (np.arange(self.ny) + 0.5) / self.ny
+            x_coords = (np.arange(self.nx) + 0.5) / self.nxl
+
+            # Meshgrid for distance calculation
+            yy, xx = np.meshgrid(y_coords, x_coords, indexing="ij")
+
+            # Squared distance from center
+            dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2
+
+            # Apply circular mask
+            mask = dist_sq <= radius**2
+            self.density[mask] = density_value
         else:
-            z_start, z_end = int(0.475 * self.nz), int(0.525 * self.nz) + 1
-            y_start, y_end = int(0.0 * self.ny), int(0.025 * self.ny) + 1
-            x_start, x_end = int(0.475 * self.nx), int(0.525 * self.nx) + 1
-            self.density[z_start:z_end, y_start:y_end, x_start:x_end] = 1.0
+            # Create 3D sphere
+            # Grid coordinates normalized to [0, 1]
+            z_coords = (np.arange(self.nz) + 0.5) / self.nz
+            y_coords = (np.arange(self.ny) + 0.5) / self.ny
+            x_coords = (np.arange(self.nx) + 0.5) / self.nx
+
+            # Meshgrid for distance calculation
+            zz, yy, xx = np.meshgrid(z_coords, y_coords, x_coords, indexing="ij")
+
+            # Squared distance from center
+            dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2 + (zz - center_z) ** 2
+
+            # Apply spherical mask
+            mask = dist_sq <= radius**2
+            self.density[mask] = density_value
 
     def apply_forces(self):
         """Apply buoyancy force to velocity field."""
@@ -457,10 +495,24 @@ class SmokeSimulator(BaseSimulator):
                 )
             else:
                 advect_u_velocity_kernel_2d(
-                    u, u_tmp, v, self.dx, self.dt, self.ny, self.nx, self.advection_rk_order
+                    u,
+                    u_tmp,
+                    v,
+                    self.dx,
+                    self.dt,
+                    self.ny,
+                    self.nx,
+                    self.advection_rk_order,
                 )
                 advect_v_velocity_kernel_2d(
-                    v, v_tmp, u, self.dx, self.dt, self.ny, self.nx, self.advection_rk_order
+                    v,
+                    v_tmp,
+                    u,
+                    self.dx,
+                    self.dt,
+                    self.ny,
+                    self.nx,
+                    self.advection_rk_order,
                 )
 
             # Copy back
@@ -482,13 +534,40 @@ class SmokeSimulator(BaseSimulator):
                 )
             else:
                 advect_u_velocity_kernel_3d(
-                    u, u_tmp, v, w, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
+                    u,
+                    u_tmp,
+                    v,
+                    w,
+                    self.dx,
+                    self.dt,
+                    self.nz,
+                    self.ny,
+                    self.nx,
+                    self.advection_rk_order,
                 )
                 advect_v_velocity_kernel_3d(
-                    v, v_tmp, u, w, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
+                    v,
+                    v_tmp,
+                    u,
+                    w,
+                    self.dx,
+                    self.dt,
+                    self.nz,
+                    self.ny,
+                    self.nx,
+                    self.advection_rk_order,
                 )
                 advect_w_velocity_kernel_3d(
-                    w, w_tmp, u, v, self.dx, self.dt, self.nz, self.ny, self.nx, self.advection_rk_order
+                    w,
+                    w_tmp,
+                    u,
+                    v,
+                    self.dx,
+                    self.dt,
+                    self.nz,
+                    self.ny,
+                    self.nx,
+                    self.advection_rk_order,
                 )
 
             # Copy back

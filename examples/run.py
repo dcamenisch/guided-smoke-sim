@@ -43,7 +43,7 @@ def main():
     parser.add_argument(
         "--frames",
         type=int,
-        default=200,
+        default=720,
         help="Number of frames to generate (default: 200)",
     )
     parser.add_argument(
@@ -127,7 +127,7 @@ def main():
     if ndim == 2:
         config = SimulationConfig(nx=128, ny=192, **common_config)
     else:
-        config = SimulationConfig(nx=64, ny=96, nz=64, **common_config)
+        config = SimulationConfig(nx=64, ny=128, nz=64, **common_config)
 
     sim = config.create_simulator()
 
