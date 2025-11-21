@@ -1,61 +1,71 @@
-"""Differential operators (curl, vorticity) for fluid simulation."""
+"""Differential operators (curl, vorticity) for fluid simulation using Torch tensors."""
 
-from numba import jit, prange
+from __future__ import annotations
+
+import torch
+
+Tensor = torch.Tensor
 
 
-@jit(nopython=True, parallel=True, cache=True)
-def compute_vorticity_kernel_2d(vorticity, u, v, dx, ny, nx):
-    """Optimized 2D vorticity computation with Numba
+def compute_vorticity_kernel_2d(
+    vorticity: Tensor, u: Tensor, v: Tensor, dx: float, ny: int, nx: int
+) -> None:
+    """Compute 2D scalar vorticity ω = ∂v/∂x - ∂u/∂y on Torch grids."""
 
-    Computes scalar vorticity: ω = ∂v/∂x - ∂u/∂y
+    if ny < 4 or nx < 4:
+        vorticity.zero_()
+        return
 
-    Args:
-        vorticity: Output vorticity field (ny, nx)
-        u: x-velocity component (ny, nx+1)
-        v: y-velocity component (ny+1, nx)
-        dx: Grid spacing
-        ny, nx: Grid dimensions
-    """
     inv_2dx = 0.5 / dx
+    y_slice = slice(2, ny - 2)
+    x_slice = slice(2, nx - 2)
 
-    for y in prange(2, ny - 2):
-        for x in range(2, nx - 2):
-            # ω = ∂v/∂x - ∂u/∂y (scalar in 2D)
-            dvdx = (v[y, x + 1] - v[y, x - 1]) * inv_2dx
-            dudy = (u[y + 1, x] - u[y - 1, x]) * inv_2dx
-            vorticity[y, x] = dvdx - dudy
+    dvdx = (v[2 : ny - 2, 3 : nx - 1] - v[2 : ny - 2, 1 : nx - 3]) * inv_2dx
+    dudy = (u[3 : ny - 1, 2 : nx - 2] - u[1 : ny - 3, 2 : nx - 2]) * inv_2dx
+
+    vorticity[y_slice, x_slice] = dvdx - dudy
 
 
-@jit(nopython=True, parallel=True, cache=True)
-def compute_vorticity_kernel_3d(vorticity, u, v, w, dx, nz, ny, nx):
-    """Optimized 3D vorticity computation with Numba
+def compute_vorticity_kernel_3d(
+    vorticity: Tensor,
+    u: Tensor,
+    v: Tensor,
+    w: Tensor,
+    dx: float,
+    nz: int,
+    ny: int,
+    nx: int,
+) -> None:
+    """Compute 3D vorticity vector ω = ∇ × u using Torch tensors."""
 
-    Computes vorticity vector: ω = ∇ × u
+    if nz < 4 or ny < 4 or nx < 4:
+        vorticity.zero_()
+        return
 
-    Args:
-        vorticity: Output vorticity field (nz, ny, nx, 3)
-        u: x-velocity component (nz, ny, nx+1)
-        v: y-velocity component (nz, ny+1, nx)
-        w: z-velocity component (nz+1, ny, nx)
-        dx: Grid spacing
-        nz, ny, nx: Grid dimensions
-    """
     inv_2dx = 0.5 / dx
+    z_slice = slice(2, nz - 2)
+    y_slice = slice(2, ny - 2)
+    x_slice = slice(2, nx - 2)
 
-    for z in prange(2, nz - 2):
-        for y in range(2, ny - 2):
-            for x in range(2, nx - 2):
-                # ω_x = ∂w/∂y - ∂v/∂z
-                dwdy = (w[z, y + 1, x] - w[z, y - 1, x]) * inv_2dx
-                dvdz = (v[z + 1, y, x] - v[z - 1, y, x]) * inv_2dx
-                vorticity[z, y, x, 0] = dwdy - dvdz
+    dwdy = (
+        w[2 : nz - 2, 3 : ny - 1, 2 : nx - 2] - w[2 : nz - 2, 1 : ny - 3, 2 : nx - 2]
+    ) * inv_2dx
+    dvdz = (
+        v[3 : nz - 1, 2 : ny - 2, 2 : nx - 2] - v[1 : nz - 3, 2 : ny - 2, 2 : nx - 2]
+    ) * inv_2dx
+    dudz = (
+        u[3 : nz - 1, 2 : ny - 2, 2 : nx - 2] - u[1 : nz - 3, 2 : ny - 2, 2 : nx - 2]
+    ) * inv_2dx
+    dwdx = (
+        w[2 : nz - 2, 2 : ny - 2, 3 : nx - 1] - w[2 : nz - 2, 2 : ny - 2, 1 : nx - 3]
+    ) * inv_2dx
+    dvdx = (
+        v[2 : nz - 2, 2 : ny - 2, 3 : nx - 1] - v[2 : nz - 2, 2 : ny - 2, 1 : nx - 3]
+    ) * inv_2dx
+    dudy = (
+        u[2 : nz - 2, 3 : ny - 1, 2 : nx - 2] - u[2 : nz - 2, 1 : ny - 3, 2 : nx - 2]
+    ) * inv_2dx
 
-                # ω_y = ∂u/∂z - ∂w/∂x
-                dudz = (u[z + 1, y, x] - u[z - 1, y, x]) * inv_2dx
-                dwdx = (w[z, y, x + 1] - w[z, y, x - 1]) * inv_2dx
-                vorticity[z, y, x, 1] = dudz - dwdx
-
-                # ω_z = ∂v/∂x - ∂u/∂y
-                dvdx = (v[z, y, x + 1] - v[z, y, x - 1]) * inv_2dx
-                dudy = (u[z, y + 1, x] - u[z, y - 1, x]) * inv_2dx
-                vorticity[z, y, x, 2] = dvdx - dudy
+    vorticity[z_slice, y_slice, x_slice, 0] = dwdy - dvdz
+    vorticity[z_slice, y_slice, x_slice, 1] = dudz - dwdx
+    vorticity[z_slice, y_slice, x_slice, 2] = dvdx - dudy

@@ -1,4 +1,4 @@
-"""Numba-optimized kernels for fluid simulation."""
+"""Torch-optimized kernels for fluid simulation."""
 
 from kernels.interpolation import bilinear_interp, trilinear_interp
 from kernels.poisson import (

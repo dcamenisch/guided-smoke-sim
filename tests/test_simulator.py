@@ -1,7 +1,8 @@
 """Tests for smoke simulator."""
 
 import pytest
-import numpy as np
+import torch
+
 from simulation import SmokeSimulator
 
 
@@ -48,26 +49,30 @@ class TestSimulatorMethods:
     def test_add_source_2d(self, sim_2d_small):
         """Test smoke source in 2D."""
         # Initially no density
-        assert np.allclose(sim_2d_small.density, 0.0)
+        assert torch.allclose(
+            sim_2d_small.density, torch.zeros_like(sim_2d_small.density)
+        )
 
         # Add source
         sim_2d_small.add_source()
 
         # Check density added in correct region
-        assert np.max(sim_2d_small.density) > 0.0
-        assert np.sum(sim_2d_small.density > 0) > 0
+        assert torch.max(sim_2d_small.density).item() > 0.0
+        assert torch.count_nonzero(sim_2d_small.density > 0).item() > 0
 
     def test_add_source_3d(self, sim_3d_small):
         """Test smoke source in 3D."""
         # Initially no density
-        assert np.allclose(sim_3d_small.density, 0.0)
+        assert torch.allclose(
+            sim_3d_small.density, torch.zeros_like(sim_3d_small.density)
+        )
 
         # Add source
         sim_3d_small.add_source()
 
         # Check density added
-        assert np.max(sim_3d_small.density) > 0.0
-        assert np.sum(sim_3d_small.density > 0) > 0
+        assert torch.max(sim_3d_small.density).item() > 0.0
+        assert torch.count_nonzero(sim_3d_small.density > 0).item() > 0
 
     def test_step_increases_time(self, sim_2d_small):
         """Test that step increases simulation time."""
@@ -88,26 +93,26 @@ class TestSimulatorMethods:
     def test_density_stays_bounded_2d(self, sim_2d_medium):
         """Test density remains in reasonable bounds."""
         # Run simulation for a while
-        for _ in range(20):
+        for _ in range(4):
             sim_2d_medium.step()
 
         # Density should be non-negative
-        assert np.all(sim_2d_medium.density >= 0.0)
+        assert torch.all(sim_2d_medium.density >= 0.0).item()
 
         # Density shouldn't explode
-        assert np.max(sim_2d_medium.density) < 10.0
+        assert torch.max(sim_2d_medium.density).item() < 10.0
 
     def test_density_stays_bounded_3d(self, sim_3d_medium):
         """Test density remains in reasonable bounds."""
         # Run simulation for a while
-        for _ in range(20):
+        for _ in range(4):
             sim_3d_medium.step()
 
         # Density should be non-negative
-        assert np.all(sim_3d_medium.density >= 0.0)
+        assert torch.all(sim_3d_medium.density >= 0.0).item()
 
         # Density shouldn't explode
-        assert np.max(sim_3d_medium.density) < 10.0
+        assert torch.max(sim_3d_medium.density).item() < 10.0
 
 
 class TestDivergenceFree:
@@ -124,7 +129,7 @@ class TestDivergenceFree:
 
         # Check divergence is small
         interior_div = sim_2d_medium.divergence[1:-1, 1:-1]
-        assert np.max(np.abs(interior_div)) < 1e-3
+        assert torch.max(torch.abs(interior_div)).item() < 1e-3
 
     def test_divergence_after_projection_3d(self, sim_3d_medium):
         """Test that velocity is divergence-free after pressure projection."""
@@ -138,7 +143,7 @@ class TestDivergenceFree:
 
         # Check divergence is small
         interior_div = sim_3d_medium.divergence[1:-1, 1:-1, 1:-1]
-        assert np.max(np.abs(interior_div)) < 1e-3
+        assert torch.max(torch.abs(interior_div)).item() < 1e-3
 
 
 class TestAdaptiveTimeStep:

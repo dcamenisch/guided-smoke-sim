@@ -1,6 +1,6 @@
 # Smoke Simulation
 
-A high-performance 2D/3D smoke simulator using MAC grids and Numba JIT compilation.
+A high-performance 2D/3D smoke simulator using MAC grids and PyTorch-accelerated kernels.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ python examples/run.py --export --frames 200 --fps 24
   - Semi-Lagrangian with RK1 (Euler) or RK3 (SSPRK3)
 - **Adaptive Time Stepping**: CFL-based automatic dt adjustment
 - **Vorticity Confinement**: Optional turbulence enhancement
-- **Numba JIT**: Optimized performance with parallel execution
+- **PyTorch Kernels**: Optimized tensor operations with optional GPU acceleration
 
 ## Python API
 
@@ -97,7 +97,7 @@ smoke-sim/
 ├── core/                   # MAC grid data structures
 │   ├── grid_2d.py         # 2D staggered grid (u, v velocity components)
 │   └── grid_3d.py         # 3D staggered grid (u, v, w velocity components)
-├── kernels/               # Numba JIT-compiled computational kernels
+├── kernels/               # PyTorch tensor-based computational kernels
 │   ├── advection.py       # Semi-Lagrangian (RK1/RK3) & MacCormack advection
 │   ├── poisson.py         # Red-Black Gauss-Seidel pressure solver
 │   ├── velocity.py        # Pressure gradient & velocity correction

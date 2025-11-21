@@ -15,8 +15,10 @@ Usage:
     python run.py --semi-lagrangian --rk-order 3  # Use SSPRK3 for improved accuracy
 """
 
-import sys
+from __future__ import annotations
+
 import argparse
+import sys
 from pathlib import Path
 
 # Add parent directory to path so we can import our modules
@@ -27,7 +29,7 @@ from simulation import SimulationConfig
 from visualization import create_2d_animation, create_3d_animation
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke Simulation")
     parser.add_argument(
         "--3d",

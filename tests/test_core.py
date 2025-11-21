@@ -1,14 +1,17 @@
 """Tests for core data structures (MAC grids)."""
 
+from __future__ import annotations
+
 import pytest
-import numpy as np
+import torch
+
 from core import MACGrid2D, MACGrid3D
 
 
 class TestMACGrid2D:
     """Tests for 2D MAC grid."""
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """Test MAC grid initialization."""
         grid = MACGrid2D(nx=16, ny=24, dx=0.1)
 
@@ -23,36 +26,36 @@ class TestMACGrid2D:
         assert grid.v_data.shape == (25, 16)
 
         # Check initialized to zero
-        assert np.allclose(grid.u_data, 0.0)
-        assert np.allclose(grid.v_data, 0.0)
+        assert torch.allclose(grid.u_data, torch.zeros_like(grid.u_data))
+        assert torch.allclose(grid.v_data, torch.zeros_like(grid.v_data))
 
-    def test_reset(self):
+    def test_reset(self) -> None:
         """Test reset functionality."""
         grid = MACGrid2D(nx=16, ny=24, dx=0.1)
 
         # Set some values
-        grid.u_data[:] = 1.0
-        grid.v_data[:] = 2.0
+        grid.u_data.fill_(1.0)
+        grid.v_data.fill_(2.0)
 
         # Reset
         grid.reset()
 
         # Check reset to zero
-        assert np.allclose(grid.u_data, 0.0)
-        assert np.allclose(grid.v_data, 0.0)
+        assert torch.allclose(grid.u_data, torch.zeros_like(grid.u_data))
+        assert torch.allclose(grid.v_data, torch.zeros_like(grid.v_data))
 
-    def test_dtype(self):
+    def test_dtype(self) -> None:
         """Test data types are float32."""
         grid = MACGrid2D(nx=16, ny=24, dx=0.1)
 
-        assert grid.u_data.dtype == np.float32
-        assert grid.v_data.dtype == np.float32
+        assert grid.u_data.dtype == torch.float32
+        assert grid.v_data.dtype == torch.float32
 
 
 class TestMACGrid3D:
     """Tests for 3D MAC grid."""
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """Test MAC grid initialization."""
         grid = MACGrid3D(nx=8, ny=12, nz=8, dx=0.1)
 
@@ -71,31 +74,31 @@ class TestMACGrid3D:
         assert grid.w_data.shape == (9, 12, 8)
 
         # Check initialized to zero
-        assert np.allclose(grid.u_data, 0.0)
-        assert np.allclose(grid.v_data, 0.0)
-        assert np.allclose(grid.w_data, 0.0)
+        assert torch.allclose(grid.u_data, torch.zeros_like(grid.u_data))
+        assert torch.allclose(grid.v_data, torch.zeros_like(grid.v_data))
+        assert torch.allclose(grid.w_data, torch.zeros_like(grid.w_data))
 
-    def test_reset(self):
+    def test_reset(self) -> None:
         """Test reset functionality."""
         grid = MACGrid3D(nx=8, ny=12, nz=8, dx=0.1)
 
         # Set some values
-        grid.u_data[:] = 1.0
-        grid.v_data[:] = 2.0
-        grid.w_data[:] = 3.0
+        grid.u_data.fill_(1.0)
+        grid.v_data.fill_(2.0)
+        grid.w_data.fill_(3.0)
 
         # Reset
         grid.reset()
 
         # Check reset to zero
-        assert np.allclose(grid.u_data, 0.0)
-        assert np.allclose(grid.v_data, 0.0)
-        assert np.allclose(grid.w_data, 0.0)
+        assert torch.allclose(grid.u_data, torch.zeros_like(grid.u_data))
+        assert torch.allclose(grid.v_data, torch.zeros_like(grid.v_data))
+        assert torch.allclose(grid.w_data, torch.zeros_like(grid.w_data))
 
-    def test_dtype(self):
+    def test_dtype(self) -> None:
         """Test data types are float32."""
         grid = MACGrid3D(nx=8, ny=12, nz=8, dx=0.1)
 
-        assert grid.u_data.dtype == np.float32
-        assert grid.v_data.dtype == np.float32
-        assert grid.w_data.dtype == np.float32
+        assert grid.u_data.dtype == torch.float32
+        assert grid.v_data.dtype == torch.float32
+        assert grid.w_data.dtype == torch.float32

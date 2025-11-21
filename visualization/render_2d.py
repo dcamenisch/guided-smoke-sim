@@ -1,15 +1,39 @@
 """2D visualization utilities for smoke simulation."""
 
-import numpy as np
-import matplotlib.pyplot as plt
+from __future__ import annotations
 
+from typing import Any, Callable, TYPE_CHECKING
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.animation import FuncAnimation
+from matplotlib.axes import Axes
 from visualization._animation import run_animation
 
+if TYPE_CHECKING:
+    from simulation.simulator import SmokeSimulator
 
-def _draw_imshow(ax, data, *, title, cmap, vmin=None, vmax=None, aspect="auto"):
+
+def _to_numpy(data: Any) -> Any:
+    """Convert Torch tensors to NumPy arrays for plotting."""
+    if hasattr(data, "detach"):
+        return data.detach().cpu().numpy()
+    return data
+
+
+def _draw_imshow(
+    ax: Axes,
+    data: Any,
+    *,
+    title: str,
+    cmap: str,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    aspect: str = "auto",
+) -> None:
     ax.clear()
     ax.imshow(
-        data,
+        _to_numpy(data),
         origin="lower",
         cmap=cmap,
         vmin=vmin,
@@ -20,8 +44,8 @@ def _draw_imshow(ax, data, *, title, cmap, vmin=None, vmax=None, aspect="auto"):
     ax.axis("off")
 
 
-def _density_panel(ax, simulator):
-    def update(frame):
+def _density_panel(ax: Axes, simulator: "SmokeSimulator") -> Callable[[int], None]:
+    def update(frame: int) -> None:
         _draw_imshow(
             ax,
             simulator.density,
@@ -34,17 +58,17 @@ def _density_panel(ax, simulator):
     return update
 
 
-def _velocity_panel(ax, simulator):
-    def update(_frame):
+def _velocity_panel(ax: Axes, simulator: "SmokeSimulator") -> Callable[[int], None]:
+    def update(_frame: int) -> None:
         vel_mag = simulator.get_velocity_magnitude()
         _draw_imshow(ax, vel_mag, title="Velocity Magnitude", cmap="viridis")
 
     return update
 
 
-def _divergence_panel(ax, simulator):
-    def update(_frame):
-        divergence = simulator.divergence
+def _divergence_panel(ax: Axes, simulator: "SmokeSimulator") -> Callable[[int], None]:
+    def update(_frame: int) -> None:
+        divergence = _to_numpy(simulator.divergence)
         div_max = np.abs(divergence).max()
         _draw_imshow(
             ax,
@@ -58,14 +82,16 @@ def _divergence_panel(ax, simulator):
     return update
 
 
-def _vorticity_panel(ax, simulator):
-    def update(_frame):
+def _vorticity_panel(ax: Axes, simulator: "SmokeSimulator") -> Callable[[int], None]:
+    def update(_frame: int) -> None:
         _draw_imshow(ax, simulator.vorticity, title="Vorticity", cmap="RdBu_r")
 
     return update
 
 
-def create_2d_animation(simulator, frames=200, interval=30):
+def create_2d_animation(
+    simulator: "SmokeSimulator", frames: int = 200, interval: int = 30
+) -> FuncAnimation:
     """Create animated visualization of 2D smoke simulation."""
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 12))

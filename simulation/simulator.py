@@ -1,6 +1,11 @@
-"""Unified smoke simulator supporting both 2D and 3D simulations."""
+"""Unified smoke simulator supporting both 2D and 3D simulations using Torch."""
+
+from __future__ import annotations
+
+from typing import Any, Optional
 
 import numpy as np
+import torch
 from simulation.base_simulator import BaseSimulator
 from physics.buoyancy import apply_buoyancy_force_2d, apply_buoyancy_force_3d
 from physics.vorticity_confinement import (
@@ -34,6 +39,15 @@ from kernels.differential import (
     compute_vorticity_kernel_3d,
 )
 
+Tensor = torch.Tensor
+
+
+def _to_numpy(array: Any) -> Any:
+    """Detach Torch tensors to NumPy for serialization."""
+    if isinstance(array, torch.Tensor):
+        return array.detach().cpu().numpy()
+    return array
+
 
 class SmokeSimulator(BaseSimulator):
     """Unified smoke simulator for 2D and 3D.
@@ -45,19 +59,21 @@ class SmokeSimulator(BaseSimulator):
 
     def __init__(
         self,
-        nx=128,
-        ny=192,
-        nz=None,
-        dt=0.07,
-        tolerance=1e-5,
-        max_iterations=1000,
-        use_maccormack=True,
-        advection_rk_order=1,
-        vorticity_epsilon=0.0,
-        cfl_target=1.0,
-        dt_min=0.001,
-        dt_max=0.1,
-    ):
+        nx: int = 128,
+        ny: int = 192,
+        nz: Optional[int] = None,
+        dt: float = 0.07,
+        tolerance: float = 1e-5,
+        max_iterations: int = 1000,
+        use_maccormack: bool = True,
+        advection_rk_order: int = 1,
+        vorticity_epsilon: float = 0.0,
+        cfl_target: float = 1.0,
+        dt_min: float = 0.001,
+        dt_max: float = 0.1,
+        device: str | torch.device = "cpu",
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
         """Initialize smoke simulator.
 
         Args:
@@ -91,26 +107,46 @@ class SmokeSimulator(BaseSimulator):
         self.use_maccormack = use_maccormack
         self.advection_rk_order = advection_rk_order
         self.vorticity_epsilon = vorticity_epsilon
+        self.device = torch.device(device)
+        self.dtype = dtype
 
         # Create appropriate MAC grids based on dimensionality
         if self.ndim == 2:
-            self.velocity = MACGrid2D(nx, ny, self.dx)
-            self.force = MACGrid2D(nx, ny, self.dx)
+            self.velocity = MACGrid2D(
+                nx, ny, self.dx, device=self.device, dtype=self.dtype
+            )
+            self.force = MACGrid2D(
+                nx, ny, self.dx, device=self.device, dtype=self.dtype
+            )
             # Scalar fields for 2D
-            self.density = np.zeros((ny, nx), dtype=np.float32)
-            self.pressure = np.zeros((ny, nx), dtype=np.float32)
-            self.divergence = np.zeros((ny, nx), dtype=np.float32)
-            self.vorticity = np.zeros((ny, nx), dtype=np.float32)
+            self.density = torch.zeros((ny, nx), dtype=self.dtype, device=self.device)
+            self.pressure = torch.zeros((ny, nx), dtype=self.dtype, device=self.device)
+            self.divergence = torch.zeros(
+                (ny, nx), dtype=self.dtype, device=self.device
+            )
+            self.vorticity = torch.zeros((ny, nx), dtype=self.dtype, device=self.device)
         else:
-            self.velocity = MACGrid3D(nx, ny, nz, self.dx)
-            self.force = MACGrid3D(nx, ny, nz, self.dx)
+            self.velocity = MACGrid3D(
+                nx, ny, nz, self.dx, device=self.device, dtype=self.dtype
+            )
+            self.force = MACGrid3D(
+                nx, ny, nz, self.dx, device=self.device, dtype=self.dtype
+            )
             # Scalar fields for 3D
-            self.density = np.zeros((nz, ny, nx), dtype=np.float32)
-            self.pressure = np.zeros((nz, ny, nx), dtype=np.float32)
-            self.divergence = np.zeros((nz, ny, nx), dtype=np.float32)
-            self.vorticity = np.zeros((nz, ny, nx, 3), dtype=np.float32)
+            self.density = torch.zeros(
+                (nz, ny, nx), dtype=self.dtype, device=self.device
+            )
+            self.pressure = torch.zeros(
+                (nz, ny, nx), dtype=self.dtype, device=self.device
+            )
+            self.divergence = torch.zeros(
+                (nz, ny, nx), dtype=self.dtype, device=self.device
+            )
+            self.vorticity = torch.zeros(
+                (nz, ny, nx, 3), dtype=self.dtype, device=self.device
+            )
 
-    def add_source(self):
+    def add_source(self) -> None:
         """Add smoke source at specified location."""
         # if self.ndim == 2:
         #     y_start, y_end = int(0.1 * self.ny), int(0.15 * self.ny) + 1
@@ -129,38 +165,36 @@ class SmokeSimulator(BaseSimulator):
         center_z = 0.5
 
         if self.ndim == 2:
-            # Create 2D circle (sphere cross-section)
-            # Grid coordinates normalized to [0, 1]
-            y_coords = (np.arange(self.ny) + 0.5) / self.ny
-            x_coords = (np.arange(self.nx) + 0.5) / self.nxl
-
-            # Meshgrid for distance calculation
-            yy, xx = np.meshgrid(y_coords, x_coords, indexing="ij")
-
-            # Squared distance from center
+            y_coords = (
+                torch.arange(self.ny, device=self.device, dtype=self.dtype) + 0.5
+            ) / self.ny
+            x_coords = (
+                torch.arange(self.nx, device=self.device, dtype=self.dtype) + 0.5
+            ) / self.nx
+            yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
             dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2
-
-            # Apply circular mask
             mask = dist_sq <= radius**2
-            self.density[mask] = density_value
+            self.density = self.density.where(
+                ~mask, torch.full_like(self.density, density_value)
+            )
         else:
-            # Create 3D sphere
-            # Grid coordinates normalized to [0, 1]
-            z_coords = (np.arange(self.nz) + 0.5) / self.nz
-            y_coords = (np.arange(self.ny) + 0.5) / self.ny
-            x_coords = (np.arange(self.nx) + 0.5) / self.nx
-
-            # Meshgrid for distance calculation
-            zz, yy, xx = np.meshgrid(z_coords, y_coords, x_coords, indexing="ij")
-
-            # Squared distance from center
+            z_coords = (
+                torch.arange(self.nz, device=self.device, dtype=self.dtype) + 0.5
+            ) / self.nz
+            y_coords = (
+                torch.arange(self.ny, device=self.device, dtype=self.dtype) + 0.5
+            ) / self.ny
+            x_coords = (
+                torch.arange(self.nx, device=self.device, dtype=self.dtype) + 0.5
+            ) / self.nx
+            zz, yy, xx = torch.meshgrid(z_coords, y_coords, x_coords, indexing="ij")
             dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2 + (zz - center_z) ** 2
-
-            # Apply spherical mask
             mask = dist_sq <= radius**2
-            self.density[mask] = density_value
+            self.density = self.density.where(
+                ~mask, torch.full_like(self.density, density_value)
+            )
 
-    def apply_forces(self):
+    def apply_forces(self) -> None:
         """Apply buoyancy force to velocity field."""
         if self.ndim == 2:
             apply_buoyancy_force_2d(
@@ -181,14 +215,14 @@ class SmokeSimulator(BaseSimulator):
                 alpha=0.1,
             )
 
-    def set_boundary_conditions(self):
+    def set_boundary_conditions(self) -> None:
         """Set boundary conditions on velocity field."""
         if self.ndim == 2:
             self._set_boundary_conditions_2d()
         else:
             self._set_boundary_conditions_3d()
 
-    def _set_boundary_conditions_2d(self):
+    def _set_boundary_conditions_2d(self) -> None:
         """Set 2D boundary conditions
 
         Open boundaries at top, left, and right (outflow)
@@ -229,7 +263,7 @@ class SmokeSimulator(BaseSimulator):
         p[0, :] = p[1, :]
         p[-1, :] = p[-2, :]
 
-    def _set_boundary_conditions_3d(self):
+    def _set_boundary_conditions_3d(self) -> None:
         """Set 3D boundary conditions
 
         Open boundaries at top and all sides (outflow)
@@ -297,7 +331,7 @@ class SmokeSimulator(BaseSimulator):
         p[0, :, :] = p[1, :, :]
         p[-1, :, :] = p[-2, :, :]
 
-    def compute_divergence(self):
+    def compute_divergence(self) -> None:
         """Compute velocity divergence."""
         u = self.velocity.u_data
         v = self.velocity.v_data
@@ -320,7 +354,7 @@ class SmokeSimulator(BaseSimulator):
             # Sum all partial derivatives - all have shape (nz, ny, nx)
             self.divergence[:, :, :] = dudx + dvdy + dwdz
 
-    def solve_poisson(self):
+    def solve_poisson(self) -> None:
         """Solve Poisson equation for pressure using Red-Black Gauss-Seidel"""
         rho = 1.0
         if self.ndim == 2:
@@ -349,7 +383,7 @@ class SmokeSimulator(BaseSimulator):
                 self.nx,
             )
 
-    def correct_velocity(self):
+    def correct_velocity(self) -> None:
         """Correct velocity with pressure gradient."""
         if self.ndim == 2:
             correct_velocity_kernel_2d(
@@ -374,7 +408,7 @@ class SmokeSimulator(BaseSimulator):
                 self.nx,
             )
 
-    def compute_vorticity(self):
+    def compute_vorticity(self) -> None:
         """Compute vorticity field."""
         if self.ndim == 2:
             compute_vorticity_kernel_2d(
@@ -419,9 +453,9 @@ class SmokeSimulator(BaseSimulator):
                     epsilon=self.vorticity_epsilon,
                 )
 
-    def advect_density(self):
+    def advect_density(self) -> None:
         """Advect density using MacCormack or semi-Lagrangian method"""
-        density_tmp = np.zeros_like(self.density)
+        density_tmp = torch.zeros_like(self.density)
 
         if self.ndim == 2:
             if self.use_maccormack:
@@ -477,13 +511,13 @@ class SmokeSimulator(BaseSimulator):
                 )
         self.density = density_tmp
 
-    def advect_velocity(self):
+    def advect_velocity(self) -> None:
         """Advect velocity using MacCormack or semi-Lagrangian method"""
         u = self.velocity.u_data
         v = self.velocity.v_data
 
-        u_tmp = np.zeros_like(u)
-        v_tmp = np.zeros_like(v)
+        u_tmp = torch.zeros_like(u)
+        v_tmp = torch.zeros_like(v)
 
         if self.ndim == 2:
             if self.use_maccormack:
@@ -520,7 +554,7 @@ class SmokeSimulator(BaseSimulator):
             self.velocity.v_data = v_tmp
         else:
             w = self.velocity.w_data
-            w_tmp = np.zeros_like(w)
+            w_tmp = torch.zeros_like(w)
 
             if self.use_maccormack:
                 advect_u_velocity_maccormack_3d(
@@ -575,7 +609,7 @@ class SmokeSimulator(BaseSimulator):
             self.velocity.v_data = v_tmp
             self.velocity.w_data = w_tmp
 
-    def get_velocity_magnitude(self):
+    def get_velocity_magnitude(self) -> Tensor:
         """Get velocity magnitude at cell centers for visualization"""
         if self.ndim == 2:
             # Average u to cell centers
@@ -587,7 +621,7 @@ class SmokeSimulator(BaseSimulator):
                 self.velocity.v_data[:-1, :] + self.velocity.v_data[1:, :]
             )
 
-            return np.sqrt(u_center**2 + v_center**2)
+            return torch.sqrt(u_center**2 + v_center**2)
         else:
             # For 3D, return magnitude for visualization (averaged to cell centers)
             u_center = 0.5 * (
@@ -600,35 +634,29 @@ class SmokeSimulator(BaseSimulator):
                 self.velocity.w_data[:-1, :, :] + self.velocity.w_data[1:, :, :]
             )
 
-            return np.sqrt(u_center**2 + v_center**2 + w_center**2)
+            return torch.sqrt(u_center**2 + v_center**2 + w_center**2)
 
-    def compute_adaptive_timestep(self):
+    def compute_adaptive_timestep(self) -> float:
         """Compute adaptive time step based on CFL condition.
 
         Returns:
             Adaptive dt clamped between dt_min and dt_max
         """
         if self.ndim == 2:
-            # Find maximum velocity components in 2D
-            max_u = np.max(np.abs(self.velocity.u_data))
-            max_v = np.max(np.abs(self.velocity.v_data))
+            max_u = torch.max(torch.abs(self.velocity.u_data)).item()
+            max_v = torch.max(torch.abs(self.velocity.v_data)).item()
             max_velocity = max(max_u, max_v)
         else:
-            # Find maximum velocity components in 3D
-            max_u = np.max(np.abs(self.velocity.u_data))
-            max_v = np.max(np.abs(self.velocity.v_data))
-            max_w = np.max(np.abs(self.velocity.w_data))
+            max_u = torch.max(torch.abs(self.velocity.u_data)).item()
+            max_v = torch.max(torch.abs(self.velocity.v_data)).item()
+            max_w = torch.max(torch.abs(self.velocity.w_data)).item()
             max_velocity = max(max_u, max_v, max_w)
 
         # Compute CFL-based time step
         if max_velocity > 1e-10:
             # CFL condition: dt = CFL * dx / max_velocity
             dt_cfl = self.cfl_target * self.dx / max_velocity
-
-            # Clamp to reasonable bounds
-            dt = np.clip(dt_cfl, self.dt_min, self.dt_max)
-
-            # Update current CFL number for diagnostics
+            dt = max(self.dt_min, min(dt_cfl, self.dt_max))
             self.current_cfl = (max_velocity * dt) / self.dx
         else:
             # No motion, use maximum allowed time step
@@ -637,7 +665,7 @@ class SmokeSimulator(BaseSimulator):
 
         return dt
 
-    def export_to_npz(self, filepath, timestep=None):
+    def export_to_npz(self, filepath: str, timestep: Optional[int] = None) -> None:
         """Export simulation state to NPZ format
 
         Args:
@@ -686,5 +714,6 @@ class SmokeSimulator(BaseSimulator):
         if timestep is not None:
             data["timestep"] = timestep
 
-        np.savez_compressed(filepath, **data)
+        numpy_data = {key: _to_numpy(value) for key, value in data.items()}
+        np.savez_compressed(filepath, **numpy_data)
         print(f"Exported {self.ndim}D simulation state to {filepath}")

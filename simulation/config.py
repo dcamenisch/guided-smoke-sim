@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import torch
+
 if TYPE_CHECKING:
     from simulation.simulator import SmokeSimulator
 
@@ -25,6 +27,8 @@ class SimulationConfig:
     cfl_target: float = 1.0
     dt_min: float = 0.001
     dt_max: float = 0.1
+    device: str | torch.device = "cpu"
+    dtype: torch.dtype = torch.float32
 
     def create_simulator(self) -> "SmokeSimulator":
         """Instantiate a simulator with the current configuration."""
@@ -44,4 +48,6 @@ class SimulationConfig:
             cfl_target=self.cfl_target,
             dt_min=self.dt_min,
             dt_max=self.dt_max,
+            device=self.device,
+            dtype=self.dtype,
         )

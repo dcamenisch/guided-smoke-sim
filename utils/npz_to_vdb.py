@@ -1,13 +1,22 @@
 """Convert NPZ simulation state files to OpenVDB format for rendering."""
 
-import sys
+from __future__ import annotations
+
 import argparse
+import sys
+from pathlib import Path
+from typing import Union
+
 import numpy as np
 import pyopenvdb as vdb
-from pathlib import Path
 
 
-def convert_npz_to_vdb(npz_path, vdb_path, field="density", verbose=True):
+def convert_npz_to_vdb(
+    npz_path: Union[str, Path],
+    vdb_path: Union[str, Path],
+    field: str = "density",
+    verbose: bool = True,
+) -> bool:
     """Convert a single NPZ file to VDB format
 
     Args:
@@ -76,8 +85,12 @@ def convert_npz_to_vdb(npz_path, vdb_path, field="density", verbose=True):
 
 
 def convert_directory(
-    input_dir, output_dir, field="density", pattern="*.npz", verbose=True
-):
+    input_dir: Union[str, Path],
+    output_dir: Union[str, Path],
+    field: str = "density",
+    pattern: str = "*.npz",
+    verbose: bool = True,
+) -> int:
     """Convert all NPZ files in a directory to VDB format
 
     Args:
@@ -126,7 +139,7 @@ def convert_directory(
     return success_count
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert NPZ simulation state files to OpenVDB format",
         formatter_class=argparse.RawDescriptionHelpFormatter,

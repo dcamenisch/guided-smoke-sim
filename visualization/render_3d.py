@@ -1,12 +1,23 @@
 """3D visualization utilities for smoke simulation."""
 
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.animation import FuncAnimation
+from matplotlib.axes import Axes
 
 from visualization._animation import run_animation
 
+if TYPE_CHECKING:
+    from simulation.simulator import SmokeSimulator
 
-def render_slice(simulator, ax, slice_type="mid_z"):
+
+def render_slice(
+    simulator: "SmokeSimulator", ax: Axes, slice_type: str = "mid_z"
+) -> None:
     """Render a 2D slice of the 3D volume
 
     Args:
@@ -37,7 +48,7 @@ def render_slice(simulator, ax, slice_type="mid_z"):
     ax.axis("off")
 
 
-def render_volume_projection(simulator, ax):
+def render_volume_projection(simulator: "SmokeSimulator", ax: Axes) -> None:
     """Render maximum intensity projection
 
     Args:
@@ -61,7 +72,9 @@ def render_volume_projection(simulator, ax):
     ax.axis("off")
 
 
-def create_3d_animation(simulator, frames=200, interval=30):
+def create_3d_animation(
+    simulator: "SmokeSimulator", frames: int = 200, interval: int = 30
+) -> FuncAnimation:
     """Create animated visualization of 3D smoke simulation."""
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 12))

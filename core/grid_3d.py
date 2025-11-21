@@ -1,7 +1,10 @@
-"""3D MAC grid for staggered velocity storage."""
+"""3D MAC grid for staggered velocity storage backed by Torch tensors."""
 
-import numpy as np
-import numpy.typing as npt
+from __future__ import annotations
+
+from typing import Optional, Union
+
+import torch
 
 
 class MACGrid3D:
@@ -13,19 +16,47 @@ class MACGrid3D:
     - w stored at z-faces (nz+1, ny, nx)
     """
 
-    def __init__(self, nx: int, ny: int, nz: int, dx: float) -> None:
+    def __init__(
+        self,
+        nx: int,
+        ny: int,
+        nz: int,
+        dx: float,
+        *,
+        device: Optional[Union[str, torch.device]] = None,
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
         self.dx = dx
         self.nx = nx
         self.ny = ny
         self.nz = nz
+        self.device = (
+            torch.device(device) if device is not None else torch.device("cpu")
+        )
+        self.dtype = dtype
 
         # Standardized naming to match 2D (u_data, v_data, w_data)
-        self.u_data = np.zeros((nz, ny, nx + 1), dtype=np.float32)
-        self.v_data = np.zeros((nz, ny + 1, nx), dtype=np.float32)
-        self.w_data = np.zeros((nz + 1, ny, nx), dtype=np.float32)
+        self.u_data = torch.zeros(
+            (nz, ny, nx + 1), dtype=self.dtype, device=self.device
+        )
+        self.v_data = torch.zeros(
+            (nz, ny + 1, nx), dtype=self.dtype, device=self.device
+        )
+        self.w_data = torch.zeros(
+            (nz + 1, ny, nx), dtype=self.dtype, device=self.device
+        )
 
     def reset(self) -> None:
         """Reset all velocity components to zero"""
-        self.u_data.fill(0.0)
-        self.v_data.fill(0.0)
-        self.w_data.fill(0.0)
+        self.u_data.zero_()
+        self.v_data.zero_()
+        self.w_data.zero_()
+
+    def to(self, device: Union[str, torch.device]) -> "MACGrid3D":
+        """Move grid tensors to a new device."""
+        device = torch.device(device)
+        self.device = device
+        self.u_data = self.u_data.to(device)
+        self.v_data = self.v_data.to(device)
+        self.w_data = self.w_data.to(device)
+        return self

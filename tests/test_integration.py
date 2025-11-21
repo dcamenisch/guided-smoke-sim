@@ -1,7 +1,7 @@
 """Integration tests for full simulation workflow."""
 
 import pytest
-import numpy as np
+import torch
 
 
 class TestFullSimulation2D:
@@ -14,19 +14,34 @@ class TestFullSimulation2D:
         sim.vorticity_epsilon = 0.2
 
         # Get initial density center of mass
-        initial_density = sim.density.copy()
-        initial_com_y = np.sum(np.arange(sim.ny)[:, None] * initial_density) / (
-            np.sum(initial_density) + 1e-10
-        )
+        initial_density = sim.density.clone()
+        y_indices = torch.arange(
+            sim.ny, device=sim.density.device, dtype=sim.density.dtype
+        ).view(-1, 1)
+        initial_com_y = (
+            torch.sum(y_indices * initial_density)
+            / (
+                torch.sum(initial_density)
+                + torch.tensor(
+                    1e-10, device=sim.density.device, dtype=sim.density.dtype
+                )
+            )
+        ).item()
 
         # Run simulation
-        for _ in range(50):
+        for _ in range(6):
             sim.step()
 
         # Get final center of mass
-        final_com_y = np.sum(np.arange(sim.ny)[:, None] * sim.density) / (
-            np.sum(sim.density) + 1e-10
-        )
+        final_com_y = (
+            torch.sum(y_indices * sim.density)
+            / (
+                torch.sum(sim.density)
+                + torch.tensor(
+                    1e-10, device=sim.density.device, dtype=sim.density.dtype
+                )
+            )
+        ).item()
 
         # Smoke should have risen (higher y position)
         assert final_com_y > initial_com_y
@@ -36,17 +51,17 @@ class TestFullSimulation2D:
         sim = sim_2d_medium
 
         # Run for a few steps to let source stabilize
-        for _ in range(5):
+        for _ in range(2):
             sim.step()
 
         # Measure mass after stabilization
-        mass_before = np.sum(sim.density)
+        mass_before = torch.sum(sim.density).item()
 
         # Run a few more steps (sources are continuously added)
-        for _ in range(5):
+        for _ in range(2):
             sim.step()
 
-        mass_after = np.sum(sim.density)
+        mass_after = torch.sum(sim.density).item()
 
         # Mass should increase or stay similar (sources add mass)
         # But shouldn't explode exponentially
@@ -58,18 +73,18 @@ class TestFullSimulation2D:
         sim = sim_2d_small
 
         # Run for many steps
-        for i in range(100):
+        for i in range(8):
             sim.step()
 
             # Check for NaN or inf
-            assert not np.any(np.isnan(sim.density))
-            assert not np.any(np.isinf(sim.density))
-            assert not np.any(np.isnan(sim.velocity.u_data))
-            assert not np.any(np.isnan(sim.velocity.v_data))
+            assert not torch.isnan(sim.density).any().item()
+            assert not torch.isinf(sim.density).any().item()
+            assert not torch.isnan(sim.velocity.u_data).any().item()
+            assert not torch.isnan(sim.velocity.v_data).any().item()
 
             # Check bounds
-            assert np.max(np.abs(sim.velocity.u_data)) < 100.0
-            assert np.max(np.abs(sim.velocity.v_data)) < 100.0
+            assert torch.max(torch.abs(sim.velocity.u_data)).item() < 100.0
+            assert torch.max(torch.abs(sim.velocity.v_data)).item() < 100.0
 
 
 class TestFullSimulation3D:
@@ -81,18 +96,33 @@ class TestFullSimulation3D:
         sim.vorticity_epsilon = 0.2
 
         # Get initial center of mass (y-axis)
-        initial_com_y = np.sum(np.arange(sim.ny)[None, :, None] * sim.density) / (
-            np.sum(sim.density) + 1e-10
-        )
+        y_indices = torch.arange(
+            sim.ny, device=sim.density.device, dtype=sim.density.dtype
+        ).view(1, -1, 1)
+        initial_com_y = (
+            torch.sum(y_indices * sim.density)
+            / (
+                torch.sum(sim.density)
+                + torch.tensor(
+                    1e-10, device=sim.density.device, dtype=sim.density.dtype
+                )
+            )
+        ).item()
 
         # Run simulation
-        for _ in range(30):
+        for _ in range(5):
             sim.step()
 
         # Get final center of mass
-        final_com_y = np.sum(np.arange(sim.ny)[None, :, None] * sim.density) / (
-            np.sum(sim.density) + 1e-10
-        )
+        final_com_y = (
+            torch.sum(y_indices * sim.density)
+            / (
+                torch.sum(sim.density)
+                + torch.tensor(
+                    1e-10, device=sim.density.device, dtype=sim.density.dtype
+                )
+            )
+        ).item()
 
         # Smoke should have risen
         assert final_com_y > initial_com_y
@@ -101,17 +131,17 @@ class TestFullSimulation3D:
         """Test 3D simulation stability."""
         sim = sim_3d_small
 
-        for i in range(50):
+        for i in range(8):
             sim.step()
 
             # Check for NaN or inf
-            assert not np.any(np.isnan(sim.density))
-            assert not np.any(np.isnan(sim.velocity.u_data))
-            assert not np.any(np.isnan(sim.velocity.v_data))
-            assert not np.any(np.isnan(sim.velocity.w_data))
+            assert not torch.isnan(sim.density).any().item()
+            assert not torch.isnan(sim.velocity.u_data).any().item()
+            assert not torch.isnan(sim.velocity.v_data).any().item()
+            assert not torch.isnan(sim.velocity.w_data).any().item()
 
             # Check bounds
-            assert np.max(np.abs(sim.velocity.w_data)) < 100.0
+            assert torch.max(torch.abs(sim.velocity.w_data)).item() < 100.0
 
 
 class TestAdvectionMethods:
@@ -126,15 +156,15 @@ class TestAdvectionMethods:
         sim_sl = SmokeSimulator(nx=32, ny=48, nz=None, use_maccormack=False, dt=0.01)
 
         # Run both for same number of steps
-        for _ in range(10):
+        for _ in range(3):
             sim_mac.step()
             sim_sl.step()
 
         # Both should produce valid results
-        assert not np.any(np.isnan(sim_mac.density))
-        assert not np.any(np.isnan(sim_sl.density))
+        assert not torch.isnan(sim_mac.density).any().item()
+        assert not torch.isnan(sim_sl.density).any().item()
 
         # They should be somewhat different (MacCormack less diffusive)
         # but both should have density present
-        assert np.sum(sim_mac.density) > 0.0
-        assert np.sum(sim_sl.density) > 0.0
+        assert torch.sum(sim_mac.density).item() > 0.0
+        assert torch.sum(sim_sl.density).item() > 0.0

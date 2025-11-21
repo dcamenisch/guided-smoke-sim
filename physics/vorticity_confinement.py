@@ -1,89 +1,64 @@
 """Vorticity confinement to restore small-scale turbulent details."""
 
-import numpy as np
-from numba import jit
+from __future__ import annotations
+
+import torch
+
 from core import MACGrid2D, MACGrid3D
 from kernels import grid_ops
 
 
-@jit(nopython=True)
 def compute_vorticity_magnitude_gradient_2d(
-    vorticity: np.ndarray,
+    vorticity: torch.Tensor,
     dx: float,
     ny: int,
     nx: int,
-) -> tuple:
-    """Compute gradient of vorticity magnitude.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute gradient of vorticity magnitude using torch tensors."""
 
-    Args:
-        vorticity: Vorticity field (ny, nx)
-        dx: Grid spacing
-        ny, nx: Grid dimensions
+    omega_mag = vorticity.abs()
+    grad_x = torch.zeros_like(vorticity)
+    grad_y = torch.zeros_like(vorticity)
 
-    Returns:
-        (grad_x, grad_y) arrays
-    """
-    grad_x = np.zeros((ny, nx), dtype=np.float32)
-    grad_y = np.zeros((ny, nx), dtype=np.float32)
-
-    # Compute magnitude of vorticity (already scalar in 2D)
-    omega_mag = np.abs(vorticity)
-
-    # Central differences for gradient
-    for y in range(1, ny - 1):
-        for x in range(1, nx - 1):
-            grad_x[y, x] = (omega_mag[y, x + 1] - omega_mag[y, x - 1]) / (2.0 * dx)
-            grad_y[y, x] = (omega_mag[y + 1, x] - omega_mag[y - 1, x]) / (2.0 * dx)
+    if ny > 2 and nx > 2:
+        denom = 2.0 * dx
+        grad_x[1 : ny - 1, 1 : nx - 1] = (
+            omega_mag[1 : ny - 1, 2:nx] - omega_mag[1 : ny - 1, 0 : nx - 2]
+        ) / denom
+        grad_y[1 : ny - 1, 1 : nx - 1] = (
+            omega_mag[2:ny, 1 : nx - 1] - omega_mag[0 : ny - 2, 1 : nx - 1]
+        ) / denom
 
     return grad_x, grad_y
 
 
-@jit(nopython=True)
 def compute_vorticity_magnitude_gradient_3d(
-    vorticity: np.ndarray,
+    vorticity: torch.Tensor,
     dx: float,
     nz: int,
     ny: int,
     nx: int,
-) -> tuple:
-    """Compute gradient of vorticity magnitude.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute gradient of vorticity magnitude in 3D using torch tensors."""
 
-    Args:
-        vorticity: Vorticity field (nz, ny, nx, 3)
-        dx: Grid spacing
-        nz, ny, nx: Grid dimensions
+    omega_mag = torch.linalg.vector_norm(vorticity, dim=-1)
+    grad_x = torch.zeros_like(omega_mag)
+    grad_y = torch.zeros_like(omega_mag)
+    grad_z = torch.zeros_like(omega_mag)
 
-    Returns:
-        (grad_x, grad_y, grad_z) arrays
-    """
-    grad_x = np.zeros((nz, ny, nx), dtype=np.float32)
-    grad_y = np.zeros((nz, ny, nx), dtype=np.float32)
-    grad_z = np.zeros((nz, ny, nx), dtype=np.float32)
-
-    # Compute magnitude of vorticity vector
-    omega_mag = np.zeros((nz, ny, nx), dtype=np.float32)
-    for z in range(nz):
-        for y in range(ny):
-            for x in range(nx):
-                omega_mag[z, y, x] = np.sqrt(
-                    vorticity[z, y, x, 0] ** 2
-                    + vorticity[z, y, x, 1] ** 2
-                    + vorticity[z, y, x, 2] ** 2
-                )
-
-    # Central differences for gradient
-    for z in range(1, nz - 1):
-        for y in range(1, ny - 1):
-            for x in range(1, nx - 1):
-                grad_x[z, y, x] = (omega_mag[z, y, x + 1] - omega_mag[z, y, x - 1]) / (
-                    2.0 * dx
-                )
-                grad_y[z, y, x] = (omega_mag[z, y + 1, x] - omega_mag[z, y - 1, x]) / (
-                    2.0 * dx
-                )
-                grad_z[z, y, x] = (omega_mag[z + 1, y, x] - omega_mag[z - 1, y, x]) / (
-                    2.0 * dx
-                )
+    denom = 2.0 * dx
+    if nx > 2:
+        grad_x[:, :, 1 : nx - 1] = (
+            omega_mag[:, :, 2:nx] - omega_mag[:, :, 0 : nx - 2]
+        ) / denom
+    if ny > 2:
+        grad_y[:, 1 : ny - 1, :] = (
+            omega_mag[:, 2:ny, :] - omega_mag[:, 0 : ny - 2, :]
+        ) / denom
+    if nz > 2:
+        grad_z[1 : nz - 1, :, :] = (
+            omega_mag[2:nz, :, :] - omega_mag[0 : nz - 2, :, :]
+        ) / denom
 
     return grad_x, grad_y, grad_z
 
@@ -91,150 +66,71 @@ def compute_vorticity_magnitude_gradient_3d(
 def apply_vorticity_confinement_2d(
     force: MACGrid2D,
     velocity: MACGrid2D,
-    vorticity: np.ndarray,
+    vorticity: torch.Tensor,
     dx: float,
     dt: float,
     epsilon: float = 0.1,
-):
-    """Apply vorticity confinement force to restore rotational features.
+) -> None:
+    """Apply vorticity confinement force to restore rotational features."""
 
-    Args:
-        force: MACGrid2D to store forces
-        velocity: MACGrid2D containing current velocities
-        vorticity: Vorticity field (ny, nx)
-        dx: Grid spacing
-        dt: Time step
-        epsilon: Confinement strength (default: 0.1)
-    """
     ny, nx = vorticity.shape
-
-    # Compute gradient of vorticity magnitude
     grad_x, grad_y = compute_vorticity_magnitude_gradient_2d(vorticity, dx, ny, nx)
 
-    # Normalize gradient to get direction N
-    # N points in the direction of increasing vorticity magnitude
-    N_x = np.zeros_like(grad_x)
-    N_y = np.zeros_like(grad_y)
+    mag = torch.sqrt(grad_x * grad_x + grad_y * grad_y)
+    eps = torch.finfo(vorticity.dtype).eps
+    mask = mag > eps
+    N_x = torch.zeros_like(grad_x)
+    N_y = torch.zeros_like(grad_y)
+    N_x[mask] = grad_x[mask] / mag[mask]
+    N_y[mask] = grad_y[mask] / mag[mask]
 
-    for y in range(ny):
-        for x in range(nx):
-            mag = np.sqrt(grad_x[y, x] ** 2 + grad_y[y, x] ** 2)
-            if mag > 1e-10:
-                N_x[y, x] = grad_x[y, x] / mag
-                N_y[y, x] = grad_y[y, x] / mag
+    force.u_data.zero_()
+    force.v_data.zero_()
 
-    # Vorticity confinement force: f = ε * h * (N × ω)
-    # In 2D: ω is scalar (perpendicular to plane), so:
-    # f_x = ε * dx * N_y * ω (perpendicular to N, in plane)
-    # f_y = -ε * dx * N_x * ω
-
-    # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
-
-    # Apply force at cell centers, then average to MAC grid faces
     f_x_center = epsilon * dx * N_y * vorticity
     f_y_center = -epsilon * dx * N_x * vorticity
 
-    # Average to u-faces (x-velocity locations)
     grid_ops.average_center_to_u_faces_2d(f_x_center, force.u_data, ny, nx)
-
-    # Average to v-faces (y-velocity locations)
     grid_ops.average_center_to_v_faces_2d(f_y_center, force.v_data, ny, nx)
 
-    # Update velocities
     grid_ops.apply_force_to_velocity_2d(velocity, force, dt)
 
 
 def apply_vorticity_confinement_3d(
     force: MACGrid3D,
     velocity: MACGrid3D,
-    vorticity: np.ndarray,
+    vorticity: torch.Tensor,
     dx: float,
     dt: float,
     epsilon: float = 0.1,
-):
-    """Apply vorticity confinement force: f = ε * h * (N × ω).
+) -> None:
+    """Apply vorticity confinement force: f = ε * h * (N × ω)."""
 
-    Args:
-        force: MACGrid3D to store forces
-        velocity: MACGrid3D containing current velocities
-        vorticity: Vorticity field (nz, ny, nx, 3)
-        dx: Grid spacing
-        dt: Time step
-        epsilon: Confinement strength (default: 0.1)
-    """
     nz, ny, nx, _ = vorticity.shape
-
-    # Compute gradient of vorticity magnitude
     grad_x, grad_y, grad_z = compute_vorticity_magnitude_gradient_3d(
         vorticity, dx, nz, ny, nx
     )
 
-    # Normalize gradient to get direction N
-    N_x = np.zeros((nz, ny, nx), dtype=np.float32)
-    N_y = np.zeros((nz, ny, nx), dtype=np.float32)
-    N_z = np.zeros((nz, ny, nx), dtype=np.float32)
+    mag = torch.sqrt(grad_x * grad_x + grad_y * grad_y + grad_z * grad_z)
+    eps = torch.finfo(vorticity.dtype).eps
+    mask = mag > eps
+    N_x = torch.zeros_like(grad_x)
+    N_y = torch.zeros_like(grad_y)
+    N_z = torch.zeros_like(grad_z)
+    N_x[mask] = grad_x[mask] / mag[mask]
+    N_y[mask] = grad_y[mask] / mag[mask]
+    N_z[mask] = grad_z[mask] / mag[mask]
 
-    for z in range(nz):
-        for y in range(ny):
-            for x in range(nx):
-                mag = np.sqrt(
-                    grad_x[z, y, x] ** 2 + grad_y[z, y, x] ** 2 + grad_z[z, y, x] ** 2
-                )
-                if mag > 1e-10:
-                    N_x[z, y, x] = grad_x[z, y, x] / mag
-                    N_y[z, y, x] = grad_y[z, y, x] / mag
-                    N_z[z, y, x] = grad_z[z, y, x] / mag
+    force.u_data.zero_()
+    force.v_data.zero_()
+    force.w_data.zero_()
 
-    # Vorticity confinement force: f = ε * h * (N × ω)
-    # Cross product: N × ω
-    f_x_center = np.zeros((nz, ny, nx), dtype=np.float32)
-    f_y_center = np.zeros((nz, ny, nx), dtype=np.float32)
-    f_z_center = np.zeros((nz, ny, nx), dtype=np.float32)
+    N = torch.stack((N_x, N_y, N_z), dim=-1)
+    cross = torch.cross(N, vorticity, dim=-1)
+    f_center = epsilon * dx * cross
 
-    for z in range(nz):
-        for y in range(ny):
-            for x in range(nx):
-                # Cross product components
-                f_x_center[z, y, x] = (
-                    epsilon
-                    * dx
-                    * (
-                        N_y[z, y, x] * vorticity[z, y, x, 2]
-                        - N_z[z, y, x] * vorticity[z, y, x, 1]
-                    )
-                )
-                f_y_center[z, y, x] = (
-                    epsilon
-                    * dx
-                    * (
-                        N_z[z, y, x] * vorticity[z, y, x, 0]
-                        - N_x[z, y, x] * vorticity[z, y, x, 2]
-                    )
-                )
-                f_z_center[z, y, x] = (
-                    epsilon
-                    * dx
-                    * (
-                        N_x[z, y, x] * vorticity[z, y, x, 1]
-                        - N_y[z, y, x] * vorticity[z, y, x, 0]
-                    )
-                )
+    grid_ops.average_center_to_u_faces_3d(f_center[..., 0], force.u_data, nz, ny, nx)
+    grid_ops.average_center_to_v_faces_3d(f_center[..., 1], force.v_data, nz, ny, nx)
+    grid_ops.average_center_to_w_faces_3d(f_center[..., 2], force.w_data, nz, ny, nx)
 
-    # Reset forces
-    force.u_data.fill(0)
-    force.v_data.fill(0)
-    force.w_data.fill(0)
-
-    # Average to u-faces (x-velocity locations)
-    grid_ops.average_center_to_u_faces_3d(f_x_center, force.u_data, nz, ny, nx)
-
-    # Average to v-faces (y-velocity locations)
-    grid_ops.average_center_to_v_faces_3d(f_y_center, force.v_data, nz, ny, nx)
-
-    # Average to w-faces (z-velocity locations)
-    grid_ops.average_center_to_w_faces_3d(f_z_center, force.w_data, nz, ny, nx)
-
-    # Update velocities
     grid_ops.apply_force_to_velocity_3d(velocity, force, dt)

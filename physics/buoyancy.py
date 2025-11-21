@@ -1,6 +1,9 @@
 """Buoyancy force implementations."""
 
-import numpy as np
+from __future__ import annotations
+
+import torch
+
 from core import MACGrid2D, MACGrid3D
 from kernels import grid_ops
 
@@ -8,11 +11,11 @@ from kernels import grid_ops
 def apply_buoyancy_force_2d(
     force: MACGrid2D,
     velocity: MACGrid2D,
-    density: np.ndarray,
+    density: torch.Tensor,
     dt: float,
     nx: int,
     alpha: float = 0.1,
-):
+) -> None:
     """Apply buoyancy force proportional to density in upward direction.
 
     Args:
@@ -25,16 +28,16 @@ def apply_buoyancy_force_2d(
     """
     grid_ops.reset_forces_2d(force)
 
-    scaling_factor = 64.0 / nx
+    scaling_factor = density.new_tensor(64.0 / nx)
 
     # Buoyancy force proportional to density
-    buoyancy = alpha * density
+    buoyancy = density * alpha
 
     # Average adjacent cells to interior y-faces
     buoyancy_at_faces = 0.5 * (buoyancy[:-1, :] + buoyancy[1:, :])
 
     # Apply to interior v-faces (y-velocity)
-    force.v_data[1:-1, :] += buoyancy_at_faces * scaling_factor
+    force.v_data[1:-1, :].add_(buoyancy_at_faces * scaling_factor)
 
     # Update velocities with forces
     grid_ops.apply_force_to_velocity_2d(velocity, force, dt)
@@ -43,11 +46,11 @@ def apply_buoyancy_force_2d(
 def apply_buoyancy_force_3d(
     force: MACGrid3D,
     velocity: MACGrid3D,
-    density: np.ndarray,
+    density: torch.Tensor,
     dt: float,
     nx: int,
     alpha: float = 0.1,
-):
+) -> None:
     """Apply buoyancy force proportional to density in upward direction.
 
     Args:
@@ -60,16 +63,16 @@ def apply_buoyancy_force_3d(
     """
     grid_ops.reset_forces_3d(force)
 
-    scaling_factor = 64.0 / nx
+    scaling_factor = density.new_tensor(64.0 / nx)
 
     # Buoyancy force proportional to density
-    buoyancy = alpha * density
+    buoyancy = density * alpha
 
     # Average adjacent cells to interior y-faces
     buoyancy_at_faces = 0.5 * (buoyancy[:, :-1, :] + buoyancy[:, 1:, :])
 
     # Apply to interior v-faces (y-velocity)
-    force.v_data[:, 1:-1, :] += buoyancy_at_faces * scaling_factor
+    force.v_data[:, 1:-1, :].add_(buoyancy_at_faces * scaling_factor)
 
     # Update all velocity components
     grid_ops.apply_force_to_velocity_3d(velocity, force, dt)

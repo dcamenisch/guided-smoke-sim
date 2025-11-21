@@ -1,302 +1,285 @@
-"""Poisson equation solvers using Jacobi and Red-Black Gauss-Seidel iteration."""
+"""Poisson equation solvers implemented with Torch tensors."""
 
-import numpy as np
-from numba import jit, prange
+from __future__ import annotations
+
+from typing import Any, Tuple
+
+import torch
+
+Tensor = torch.Tensor
 
 
-@jit(nopython=True, parallel=True, cache=True)
+def _ensure_tensors(pressure: Any, divergence: Any) -> Tuple[Tensor, Tensor]:
+    """Ensure inputs are torch tensors sharing dtype/device."""
+
+    if not torch.is_tensor(pressure):
+        pressure = torch.as_tensor(pressure, dtype=torch.float32)
+    if not torch.is_tensor(divergence):
+        divergence = torch.as_tensor(divergence, dtype=pressure.dtype)
+    else:
+        divergence = divergence.to(dtype=pressure.dtype, device=pressure.device)
+
+    if divergence.device != pressure.device:
+        divergence = divergence.to(pressure.device)
+
+    return pressure, divergence
+
+
+def _checkerboard_mask(
+    shape: Tuple[int, ...], parity: int, device: torch.device
+) -> Tensor:
+    if len(shape) == 2:
+        i = torch.arange(shape[0], device=device).view(-1, 1)
+        j = torch.arange(shape[1], device=device).view(1, -1)
+        mask = ((i + j) % 2) == parity
+    else:
+        i = torch.arange(shape[0], device=device).view(-1, 1, 1)
+        j = torch.arange(shape[1], device=device).view(1, -1, 1)
+        k = torch.arange(shape[2], device=device).view(1, 1, -1)
+        mask = ((i + j + k) % 2) == parity
+    return mask
+
+
+def _residual_l2_2d(pressure: Tensor, rhs: Tensor, dx2: float) -> float:
+    if rhs.numel() == 0:
+        return 0.0
+    interior = pressure[1:-1, 1:-1]
+    laplacian = (
+        -4.0 * interior
+        + pressure[0:-2, 1:-1]
+        + pressure[2:, 1:-1]
+        + pressure[1:-1, 0:-2]
+        + pressure[1:-1, 2:]
+    ) / dx2
+    residual = rhs - laplacian
+    value = torch.sqrt(torch.sum(residual * residual)) / rhs.numel()
+    return float(value)
+
+
+def _residual_l2_3d(pressure: Tensor, rhs: Tensor, dx2: float) -> float:
+    if rhs.numel() == 0:
+        return 0.0
+    interior = pressure[1:-1, 1:-1, 1:-1]
+    laplacian = (
+        -6.0 * interior
+        + pressure[0:-2, 1:-1, 1:-1]
+        + pressure[2:, 1:-1, 1:-1]
+        + pressure[1:-1, 0:-2, 1:-1]
+        + pressure[1:-1, 2:, 1:-1]
+        + pressure[1:-1, 1:-1, 0:-2]
+        + pressure[1:-1, 1:-1, 2:]
+    ) / dx2
+    residual = rhs - laplacian
+    value = torch.sqrt(torch.sum(residual * residual)) / rhs.numel()
+    return float(value)
+
+
+def _gauss_seidel_update_2d(
+    pressure: Tensor, rhs: Tensor, dx2: float, mask: Tensor
+) -> None:
+    interior = pressure[1:-1, 1:-1]
+    neighbor_sum = (
+        pressure[0:-2, 1:-1]
+        + pressure[2:, 1:-1]
+        + pressure[1:-1, 0:-2]
+        + pressure[1:-1, 2:]
+    )
+    updated = (dx2 * rhs + neighbor_sum) * 0.25
+    interior = torch.where(mask, updated, interior)
+    pressure[1:-1, 1:-1] = interior
+
+
+def _gauss_seidel_update_3d(
+    pressure: Tensor, rhs: Tensor, dx2: float, mask: Tensor
+) -> None:
+    interior = pressure[1:-1, 1:-1, 1:-1]
+    neighbor_sum = (
+        pressure[0:-2, 1:-1, 1:-1]
+        + pressure[2:, 1:-1, 1:-1]
+        + pressure[1:-1, 0:-2, 1:-1]
+        + pressure[1:-1, 2:, 1:-1]
+        + pressure[1:-1, 1:-1, 0:-2]
+        + pressure[1:-1, 1:-1, 2:]
+    )
+    updated = (dx2 * rhs + neighbor_sum) / 6.0
+    interior = torch.where(mask, updated, interior)
+    pressure[1:-1, 1:-1, 1:-1] = interior
+
+
+@torch.no_grad()
 def solve_poisson_rb_gauss_seidel_2d(
-    pressure, divergence, dx, dt, rho, max_iter, tolerance, ny, nx
-):
-    """Red-Black Gauss-Seidel solver for Poisson equation: ∇²p = -ρ/dt * ∇·u.
+    pressure: Tensor,
+    divergence: Tensor,
+    dx: float,
+    dt: float,
+    rho: float,
+    max_iter: int,
+    tolerance: float,
+    ny: int,
+    nx: int,
+) -> Tensor:
+    """Torch-based 2D Red-Black Gauss-Seidel Poisson solver."""
 
-    Uses checkerboard pattern for parallel updates (converges ~2x faster than Jacobi).
+    pressure, divergence = _ensure_tensors(pressure, divergence)
+    if pressure.ndim != 2:
+        raise ValueError("Expected 2D pressure grid")
 
-    Args:
-        pressure: Initial pressure field (ny, nx)
-        divergence: Velocity divergence field (ny, nx)
-        dx: Grid spacing
-        dt: Time step
-        rho: Fluid density
-        max_iter: Maximum iterations
-        tolerance: Convergence tolerance
-        ny, nx: Grid dimensions
+    if ny != pressure.shape[0] or nx != pressure.shape[1]:
+        raise ValueError("Provided grid dimensions do not match pressure shape")
 
-    Returns:
-        Updated pressure field
-    """
+    if ny < 3 or nx < 3:
+        return pressure
+
     dx2 = dx * dx
+    rhs = -divergence[1:-1, 1:-1] / dt * rho
+    mask_red = _checkerboard_mask(rhs.shape, 0, pressure.device)
+    mask_black = ~mask_red
 
     for iteration in range(max_iter):
-        # Red cells update (i+j even)
-        for y in prange(1, ny - 1):
-            for x in range(1, nx - 1):
-                if (y + x) % 2 == 0:  # Red cells
-                    b = -divergence[y, x] / dt * rho
-                    pressure[y, x] = (
-                        dx2 * b
-                        + pressure[y - 1, x]
-                        + pressure[y + 1, x]
-                        + pressure[y, x - 1]
-                        + pressure[y, x + 1]
-                    ) / 4.0
+        _gauss_seidel_update_2d(pressure, rhs, dx2, mask_red)
+        _gauss_seidel_update_2d(pressure, rhs, dx2, mask_black)
 
-        # Black cells update (i+j odd)
-        for y in prange(1, ny - 1):
-            for x in range(1, nx - 1):
-                if (y + x) % 2 == 1:  # Black cells
-                    b = -divergence[y, x] / dt * rho
-                    pressure[y, x] = (
-                        dx2 * b
-                        + pressure[y - 1, x]
-                        + pressure[y + 1, x]
-                        + pressure[y, x - 1]
-                        + pressure[y, x + 1]
-                    ) / 4.0
-
-        # Check convergence every 10 iterations
         if iteration % 10 == 0:
-            residual = 0.0
-            for y in prange(1, ny - 1):
-                for x in range(1, nx - 1):
-                    b = -divergence[y, x] / dt * rho
-                    cell_residual = (
-                        b
-                        - (
-                            4 * pressure[y, x]
-                            - pressure[y - 1, x]
-                            - pressure[y + 1, x]
-                            - pressure[y, x - 1]
-                            - pressure[y, x + 1]
-                        )
-                        / dx2
-                    )
-                    residual += cell_residual * cell_residual
-
-            residual = np.sqrt(residual) / ((nx - 2) * (ny - 2))
+            residual = _residual_l2_2d(pressure, rhs, dx2)
             if residual < tolerance:
                 break
 
     return pressure
 
 
-@jit(nopython=True, parallel=True, cache=True)
+@torch.no_grad()
 def solve_poisson_rb_gauss_seidel_3d(
-    pressure, divergence, dx, dt, rho, max_iter, tolerance, nz, ny, nx
-):
-    """Red-Black Gauss-Seidel solver for Poisson equation: ∇²p = -ρ/dt * ∇·u.
+    pressure: Tensor,
+    divergence: Tensor,
+    dx: float,
+    dt: float,
+    rho: float,
+    max_iter: int,
+    tolerance: float,
+    nz: int,
+    ny: int,
+    nx: int,
+) -> Tensor:
+    """Torch-based 3D Red-Black Gauss-Seidel Poisson solver."""
 
-    Uses 3D checkerboard pattern for parallel updates (converges ~2x faster than Jacobi).
+    pressure, divergence = _ensure_tensors(pressure, divergence)
+    if pressure.ndim != 3:
+        raise ValueError("Expected 3D pressure grid")
 
-    Args:
-        pressure: Initial pressure field (nz, ny, nx)
-        divergence: Velocity divergence field (nz, ny, nx)
-        dx: Grid spacing
-        dt: Time step
-        rho: Fluid density
-        max_iter: Maximum iterations
-        tolerance: Convergence tolerance
-        nz, ny, nx: Grid dimensions
+    if (nz, ny, nx) != pressure.shape:
+        raise ValueError("Provided grid dimensions do not match pressure shape")
 
-    Returns:
-        Updated pressure field
-    """
+    if nz < 3 or ny < 3 or nx < 3:
+        return pressure
+
     dx2 = dx * dx
+    rhs = -divergence[1:-1, 1:-1, 1:-1] / dt * rho
+    mask_red = _checkerboard_mask(rhs.shape, 0, pressure.device)
+    mask_black = ~mask_red
 
     for iteration in range(max_iter):
-        # Red cells update (i+j+k even)
-        for z in prange(1, nz - 1):
-            for y in range(1, ny - 1):
-                for x in range(1, nx - 1):
-                    if (z + y + x) % 2 == 0:  # Red cells
-                        b = -divergence[z, y, x] / dt * rho
-                        pressure[z, y, x] = (
-                            dx2 * b
-                            + pressure[z - 1, y, x]
-                            + pressure[z + 1, y, x]
-                            + pressure[z, y - 1, x]
-                            + pressure[z, y + 1, x]
-                            + pressure[z, y, x - 1]
-                            + pressure[z, y, x + 1]
-                        ) / 6.0
+        _gauss_seidel_update_3d(pressure, rhs, dx2, mask_red)
+        _gauss_seidel_update_3d(pressure, rhs, dx2, mask_black)
 
-        # Black cells update (i+j+k odd)
-        for z in prange(1, nz - 1):
-            for y in range(1, ny - 1):
-                for x in range(1, nx - 1):
-                    if (z + y + x) % 2 == 1:  # Black cells
-                        b = -divergence[z, y, x] / dt * rho
-                        pressure[z, y, x] = (
-                            dx2 * b
-                            + pressure[z - 1, y, x]
-                            + pressure[z + 1, y, x]
-                            + pressure[z, y - 1, x]
-                            + pressure[z, y + 1, x]
-                            + pressure[z, y, x - 1]
-                            + pressure[z, y, x + 1]
-                        ) / 6.0
-
-        # Check convergence every 10 iterations
         if iteration % 10 == 0:
-            residual = 0.0
-            for z in prange(1, nz - 1):
-                for y in range(1, ny - 1):
-                    for x in range(1, nx - 1):
-                        b = -divergence[z, y, x] / dt * rho
-                        cell_residual = (
-                            b
-                            - (
-                                6 * pressure[z, y, x]
-                                - pressure[z - 1, y, x]
-                                - pressure[z + 1, y, x]
-                                - pressure[z, y - 1, x]
-                                - pressure[z, y + 1, x]
-                                - pressure[z, y, x - 1]
-                                - pressure[z, y, x + 1]
-                            )
-                            / dx2
-                        )
-                        residual += cell_residual * cell_residual
-
-            residual = np.sqrt(residual) / ((nx - 2) * (ny - 2) * (nz - 2))
+            residual = _residual_l2_3d(pressure, rhs, dx2)
             if residual < tolerance:
                 break
 
     return pressure
 
 
-@jit(nopython=True, parallel=True, cache=True)
+@torch.no_grad()
 def solve_poisson_jacobi_2d(
-    pressure, divergence, dx, dt, rho, max_iter, tolerance, ny, nx
-):
-    """Optimized 2D Jacobi solver with Numba JIT compilation
+    pressure: Tensor,
+    divergence: Tensor,
+    dx: float,
+    dt: float,
+    rho: float,
+    max_iter: int,
+    tolerance: float,
+    ny: int,
+    nx: int,
+) -> Tensor:
+    """Torch-based 2D Jacobi solver for the Poisson equation."""
 
-    Solves: ∇²p = -ρ/dt * ∇·u
+    pressure, divergence = _ensure_tensors(pressure, divergence)
+    if pressure.ndim != 2:
+        raise ValueError("Expected 2D pressure grid")
+    if ny != pressure.shape[0] or nx != pressure.shape[1]:
+        raise ValueError("Provided grid dimensions do not match pressure shape")
 
-    Args:
-        pressure: Initial pressure field (ny, nx)
-        divergence: Velocity divergence field (ny, nx)
-        dx: Grid spacing
-        dt: Time step
-        rho: Fluid density
-        max_iter: Maximum iterations
-        tolerance: Convergence tolerance
-        ny, nx: Grid dimensions
+    if ny < 3 or nx < 3:
+        return pressure
 
-    Returns:
-        Updated pressure field
-    """
     dx2 = dx * dx
-    pressure_new = pressure.copy()
+    pressure_new = pressure.clone()
+    rhs = -divergence / dt * rho
 
     for iteration in range(max_iter):
-        # Jacobi update
-        for y in prange(1, ny - 1):
-            for x in range(1, nx - 1):
-                b = -divergence[y, x] / dt * rho
-                pressure_new[y, x] = (
-                    dx2 * b
-                    + pressure[y - 1, x]
-                    + pressure[y + 1, x]
-                    + pressure[y, x - 1]
-                    + pressure[y, x + 1]
-                ) / 4.0
+        neighbor_sum = (
+            pressure[0:-2, 1:-1]
+            + pressure[2:, 1:-1]
+            + pressure[1:-1, 0:-2]
+            + pressure[1:-1, 2:]
+        )
+        pressure_new[1:-1, 1:-1] = (dx2 * rhs[1:-1, 1:-1] + neighbor_sum) * 0.25
 
-        # Swap arrays
         pressure, pressure_new = pressure_new, pressure
 
-        # Check convergence every 10 iterations to save time
         if iteration % 10 == 0:
-            residual = 0.0
-            for y in prange(1, ny - 1):
-                for x in range(1, nx - 1):
-                    b = -divergence[y, x] / dt * rho
-                    cell_residual = (
-                        b
-                        - (
-                            4 * pressure[y, x]
-                            - pressure[y - 1, x]
-                            - pressure[y + 1, x]
-                            - pressure[y, x - 1]
-                            - pressure[y, x + 1]
-                        )
-                        / dx2
-                    )
-                    residual += cell_residual * cell_residual
-
-            residual = np.sqrt(residual) / ((nx - 2) * (ny - 2))
+            residual = _residual_l2_2d(pressure, rhs[1:-1, 1:-1], dx2)
             if residual < tolerance:
                 break
 
     return pressure
 
 
-@jit(nopython=True, parallel=True, cache=True)
+@torch.no_grad()
 def solve_poisson_jacobi_3d(
-    pressure, divergence, dx, dt, rho, max_iter, tolerance, nz, ny, nx
-):
-    """Optimized 3D Jacobi solver with Numba JIT compilation
+    pressure: Tensor,
+    divergence: Tensor,
+    dx: float,
+    dt: float,
+    rho: float,
+    max_iter: int,
+    tolerance: float,
+    nz: int,
+    ny: int,
+    nx: int,
+) -> Tensor:
+    """Torch-based 3D Jacobi solver for the Poisson equation."""
 
-    Solves: ∇²p = -ρ/dt * ∇·u
+    pressure, divergence = _ensure_tensors(pressure, divergence)
+    if pressure.ndim != 3:
+        raise ValueError("Expected 3D pressure grid")
+    if (nz, ny, nx) != pressure.shape:
+        raise ValueError("Provided grid dimensions do not match pressure shape")
 
-    Args:
-        pressure: Initial pressure field (nz, ny, nx)
-        divergence: Velocity divergence field (nz, ny, nx)
-        dx: Grid spacing
-        dt: Time step
-        rho: Fluid density
-        max_iter: Maximum iterations
-        tolerance: Convergence tolerance
-        nz, ny, nx: Grid dimensions
+    if nz < 3 or ny < 3 or nx < 3:
+        return pressure
 
-    Returns:
-        Updated pressure field
-    """
     dx2 = dx * dx
-    pressure_new = pressure.copy()
+    pressure_new = pressure.clone()
+    rhs = -divergence / dt * rho
 
     for iteration in range(max_iter):
-        # Jacobi update
-        for z in prange(1, nz - 1):
-            for y in range(1, ny - 1):
-                for x in range(1, nx - 1):
-                    b = -divergence[z, y, x] / dt * rho
-                    pressure_new[z, y, x] = (
-                        dx2 * b
-                        + pressure[z - 1, y, x]
-                        + pressure[z + 1, y, x]
-                        + pressure[z, y - 1, x]
-                        + pressure[z, y + 1, x]
-                        + pressure[z, y, x - 1]
-                        + pressure[z, y, x + 1]
-                    ) / 6.0
+        neighbor_sum = (
+            pressure[0:-2, 1:-1, 1:-1]
+            + pressure[2:, 1:-1, 1:-1]
+            + pressure[1:-1, 0:-2, 1:-1]
+            + pressure[1:-1, 2:, 1:-1]
+            + pressure[1:-1, 1:-1, 0:-2]
+            + pressure[1:-1, 1:-1, 2:]
+        )
+        pressure_new[1:-1, 1:-1, 1:-1] = (
+            dx2 * rhs[1:-1, 1:-1, 1:-1] + neighbor_sum
+        ) / 6.0
 
-        # Swap arrays
         pressure, pressure_new = pressure_new, pressure
 
-        # Check convergence every 10 iterations to save time
         if iteration % 10 == 0:
-            residual = 0.0
-            for z in prange(1, nz - 1):
-                for y in range(1, ny - 1):
-                    for x in range(1, nx - 1):
-                        b = -divergence[z, y, x] / dt * rho
-                        cell_residual = (
-                            b
-                            - (
-                                6 * pressure[z, y, x]
-                                - pressure[z - 1, y, x]
-                                - pressure[z + 1, y, x]
-                                - pressure[z, y - 1, x]
-                                - pressure[z, y + 1, x]
-                                - pressure[z, y, x - 1]
-                                - pressure[z, y, x + 1]
-                            )
-                            / dx2
-                        )
-                        residual += cell_residual * cell_residual
-
-            residual = np.sqrt(residual) / ((nx - 2) * (ny - 2) * (nz - 2))
+            residual = _residual_l2_3d(pressure, rhs[1:-1, 1:-1, 1:-1], dx2)
             if residual < tolerance:
                 break
 
