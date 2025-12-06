@@ -12,6 +12,7 @@ from physics.vorticity_confinement import (
     apply_vorticity_confinement_2d,
     apply_vorticity_confinement_3d,
 )
+from physics.external_force import apply_external_force_2d, apply_external_force_3d
 from core import MACGrid2D, MACGrid3D
 from kernels.poisson import (
     solve_poisson_rb_gauss_seidel_2d,
@@ -159,7 +160,7 @@ class SmokeSimulator(BaseSimulator):
         #     self.density[z_start:z_end, y_start:y_end, x_start:x_end] = 1.0
 
         radius = 0.1
-        density_value = 0.75
+        density_value = 1.0
         center_x = 0.5
         center_y = 0.15
         center_z = 0.5
@@ -172,7 +173,8 @@ class SmokeSimulator(BaseSimulator):
                 torch.arange(self.nx, device=self.device, dtype=self.dtype) + 0.5
             ) / self.nx
             yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
-            dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2
+            y_scale = self.ny / self.nx if self.nx else 1.0
+            dist_sq = (xx - center_x) ** 2 + ((yy - center_y) * y_scale) ** 2
             mask = dist_sq <= radius**2
             self.density = self.density.where(
                 ~mask, torch.full_like(self.density, density_value)
@@ -188,7 +190,13 @@ class SmokeSimulator(BaseSimulator):
                 torch.arange(self.nx, device=self.device, dtype=self.dtype) + 0.5
             ) / self.nx
             zz, yy, xx = torch.meshgrid(z_coords, y_coords, x_coords, indexing="ij")
-            dist_sq = (xx - center_x) ** 2 + (yy - center_y) ** 2 + (zz - center_z) ** 2
+            y_scale = self.ny / self.nx if self.nx else 1.0
+            z_scale = self.nz / self.nx if self.nx else 1.0
+            dist_sq = (
+                (xx - center_x) ** 2
+                + ((yy - center_y) * y_scale) ** 2
+                + ((zz - center_z) * z_scale) ** 2
+            )
             mask = dist_sq <= radius**2
             self.density = self.density.where(
                 ~mask, torch.full_like(self.density, density_value)
