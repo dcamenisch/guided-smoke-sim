@@ -23,11 +23,19 @@ def apply_external_force_2d(
         force_field_v: External force in y-direction (ny+1, nx)
         dt: Time step
     """
-    force.u_data.copy_(force_field_u.to(force.u_data.device, dtype=force.u_data.dtype))
-    force.v_data.copy_(force_field_v.to(force.v_data.device, dtype=force.v_data.dtype))
+    # Preserve gradients - only convert if necessary
+    if force_field_u.device != force.u_data.device or force_field_u.dtype != force.u_data.dtype:
+        force.u_data = force_field_u.to(force.u_data.device, dtype=force.u_data.dtype)
+    else:
+        force.u_data = force_field_u
+        
+    if force_field_v.device != force.v_data.device or force_field_v.dtype != force.v_data.dtype:
+        force.v_data = force_field_v.to(force.v_data.device, dtype=force.v_data.dtype)
+    else:
+        force.v_data = force_field_v
 
-    velocity.u_data.add_(force.u_data, alpha=dt)
-    velocity.v_data.add_(force.v_data, alpha=dt)
+    velocity.u_data = velocity.u_data + force.u_data * dt
+    velocity.v_data = velocity.v_data + force.v_data * dt
 
 
 def apply_external_force_3d(
@@ -48,10 +56,22 @@ def apply_external_force_3d(
         force_field_w: External force in z-direction (nz+1, ny, nx)
         dt: Time step
     """
-    force.u_data.copy_(force_field_u.to(force.u_data.device, dtype=force.u_data.dtype))
-    force.v_data.copy_(force_field_v.to(force.v_data.device, dtype=force.v_data.dtype))
-    force.w_data.copy_(force_field_w.to(force.w_data.device, dtype=force.w_data.dtype))
+    # Preserve gradients - only convert if necessary
+    if force_field_u.device != force.u_data.device or force_field_u.dtype != force.u_data.dtype:
+        force.u_data = force_field_u.to(force.u_data.device, dtype=force.u_data.dtype)
+    else:
+        force.u_data = force_field_u
+        
+    if force_field_v.device != force.v_data.device or force_field_v.dtype != force.v_data.dtype:
+        force.v_data = force_field_v.to(force.v_data.device, dtype=force.v_data.dtype)
+    else:
+        force.v_data = force_field_v
+        
+    if force_field_w.device != force.w_data.device or force_field_w.dtype != force.w_data.dtype:
+        force.w_data = force_field_w.to(force.w_data.device, dtype=force.w_data.dtype)
+    else:
+        force.w_data = force_field_w
 
-    velocity.u_data.add_(force.u_data, alpha=dt)
-    velocity.v_data.add_(force.v_data, alpha=dt)
-    velocity.w_data.add_(force.w_data, alpha=dt)
+    velocity.u_data = velocity.u_data + force.u_data * dt
+    velocity.v_data = velocity.v_data + force.v_data * dt
+    velocity.w_data = velocity.w_data + force.w_data * dt

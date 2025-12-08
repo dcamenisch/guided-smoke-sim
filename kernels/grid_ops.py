@@ -170,69 +170,89 @@ def find_neighborhood_bounds_1d_y_2d(
 
 
 def reset_forces_2d(force: MACGrid2D) -> None:
-    force.u_data.zero_()
-    force.v_data.zero_()
+    """Reset forces (differentiable version)"""
+    force.u_data = torch.zeros_like(force.u_data)
+    force.v_data = torch.zeros_like(force.v_data)
 
 
 def reset_forces_3d(force: MACGrid3D) -> None:
-    force.u_data.zero_()
-    force.v_data.zero_()
-    force.w_data.zero_()
+    """Reset forces (differentiable version)"""
+    force.u_data = torch.zeros_like(force.u_data)
+    force.v_data = torch.zeros_like(force.v_data)
+    force.w_data = torch.zeros_like(force.w_data)
 
 
 def apply_force_to_velocity_2d(
     velocity: MACGrid2D, force: MACGrid2D, dt: float
 ) -> None:
-    velocity.u_data.add_(force.u_data, alpha=dt)
-    velocity.v_data.add_(force.v_data, alpha=dt)
+    """Apply forces to velocity (differentiable version)"""
+    velocity.u_data = velocity.u_data + force.u_data * dt
+    velocity.v_data = velocity.v_data + force.v_data * dt
 
 
 def apply_force_to_velocity_3d(
     velocity: MACGrid3D, force: MACGrid3D, dt: float
 ) -> None:
-    velocity.u_data.add_(force.u_data, alpha=dt)
-    velocity.v_data.add_(force.v_data, alpha=dt)
-    velocity.w_data.add_(force.w_data, alpha=dt)
+    """Apply forces to velocity (differentiable version)"""
+    velocity.u_data = velocity.u_data + force.u_data * dt
+    velocity.v_data = velocity.v_data + force.v_data * dt
+    velocity.w_data = velocity.w_data + force.w_data * dt
 
 
 def average_center_to_u_faces_2d(
     center_values: Tensor, u_faces: Tensor, ny: int, nx: int
 ) -> None:
-    u_faces[1 : ny - 1, 1:nx] = 0.5 * (
+    """Average center values to u-faces (differentiable version)"""
+    u_faces_new = u_faces.clone()
+    u_faces_new[1 : ny - 1, 1:nx] = 0.5 * (
         center_values[1 : ny - 1, 0 : nx - 1] + center_values[1 : ny - 1, 1:nx]
     )
+    # Return by modifying the reference (for compatibility)
+    u_faces.copy_(u_faces_new)
 
 
 def average_center_to_v_faces_2d(
     center_values: Tensor, v_faces: Tensor, ny: int, nx: int
 ) -> None:
-    v_faces[1:ny, 1 : nx - 1] = 0.5 * (
+    """Average center values to v-faces (differentiable version)"""
+    v_faces_new = v_faces.clone()
+    v_faces_new[1:ny, 1 : nx - 1] = 0.5 * (
         center_values[0 : ny - 1, 1 : nx - 1] + center_values[1:ny, 1 : nx - 1]
     )
+    v_faces.copy_(v_faces_new)
 
 
 def average_center_to_u_faces_3d(
     center_values: Tensor, u_faces: Tensor, nz: int, ny: int, nx: int
 ) -> None:
-    u_faces[1 : nz - 1, 1 : ny - 1, 1:nx] = 0.5 * (
+    """Average center values to u-faces (differentiable version)"""
+    u_faces_new = u_faces.clone()
+    u_faces_new[1 : nz - 1, 1 : ny - 1, 1:nx] = 0.5 * (
         center_values[1 : nz - 1, 1 : ny - 1, 0 : nx - 1]
         + center_values[1 : nz - 1, 1 : ny - 1, 1:nx]
     )
+    u_faces.copy_(u_faces_new)
 
 
 def average_center_to_v_faces_3d(
     center_values: Tensor, v_faces: Tensor, nz: int, ny: int, nx: int
 ) -> None:
-    v_faces[1 : nz - 1, 1:ny, 1 : nx - 1] = 0.5 * (
+    """Average center values to v-faces (differentiable version)"""
+    v_faces_new = v_faces.clone()
+    v_faces_new[1 : nz - 1, 1:ny, 1 : nx - 1] = 0.5 * (
         center_values[1 : nz - 1, 0 : ny - 1, 1 : nx - 1]
         + center_values[1 : nz - 1, 1:ny, 1 : nx - 1]
     )
+    v_faces.copy_(v_faces_new)
 
 
 def average_center_to_w_faces_3d(
     center_values: Tensor, w_faces: Tensor, nz: int, ny: int, nx: int
 ) -> None:
-    w_faces[1:nz, 1 : ny - 1, 1 : nx - 1] = 0.5 * (
+    """Average center values to w-faces (differentiable version)"""
+    w_faces_new = w_faces.clone()
+    w_faces_new[1:nz, 1 : ny - 1, 1 : nx - 1] = 0.5 * (
         center_values[0 : nz - 1, 1 : ny - 1, 1 : nx - 1]
         + center_values[1:nz, 1 : ny - 1, 1 : nx - 1]
     )
+    w_faces.copy_(w_faces_new)

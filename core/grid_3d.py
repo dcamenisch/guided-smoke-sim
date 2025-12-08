@@ -47,10 +47,10 @@ class MACGrid3D:
         )
 
     def reset(self) -> None:
-        """Reset all velocity components to zero"""
-        self.u_data.zero_()
-        self.v_data.zero_()
-        self.w_data.zero_()
+        """Reset all velocity components to zero (differentiable)"""
+        self.u_data = torch.zeros_like(self.u_data)
+        self.v_data = torch.zeros_like(self.v_data)
+        self.w_data = torch.zeros_like(self.w_data)
 
     def to(self, device: Union[str, torch.device]) -> "MACGrid3D":
         """Move grid tensors to a new device."""

@@ -38,9 +38,9 @@ class MACGrid2D:
         self.v_data = torch.zeros((ny + 1, nx), dtype=self.dtype, device=self.device)
 
     def reset(self) -> None:
-        """Reset all velocity components to zero"""
-        self.u_data.zero_()
-        self.v_data.zero_()
+        """Reset all velocity components to zero (differentiable)"""
+        self.u_data = torch.zeros_like(self.u_data)
+        self.v_data = torch.zeros_like(self.v_data)
 
     def to(self, device: Union[str, torch.device]) -> "MACGrid2D":
         """Move grid data to a different device."""

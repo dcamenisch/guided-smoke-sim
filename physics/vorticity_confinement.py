@@ -84,8 +84,8 @@ def apply_vorticity_confinement_2d(
     N_x[mask] = grad_x[mask] / mag[mask]
     N_y[mask] = grad_y[mask] / mag[mask]
 
-    force.u_data.zero_()
-    force.v_data.zero_()
+    force.u_data = torch.zeros_like(force.u_data)
+    force.v_data = torch.zeros_like(force.v_data)
 
     f_x_center = epsilon * dx * N_y * vorticity
     f_y_center = -epsilon * dx * N_x * vorticity
@@ -121,9 +121,9 @@ def apply_vorticity_confinement_3d(
     N_y[mask] = grad_y[mask] / mag[mask]
     N_z[mask] = grad_z[mask] / mag[mask]
 
-    force.u_data.zero_()
-    force.v_data.zero_()
-    force.w_data.zero_()
+    force.u_data = torch.zeros_like(force.u_data)
+    force.v_data = torch.zeros_like(force.v_data)
+    force.w_data = torch.zeros_like(force.w_data)
 
     N = torch.stack((N_x, N_y, N_z), dim=-1)
     cross = torch.cross(N, vorticity, dim=-1)

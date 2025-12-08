@@ -74,6 +74,8 @@ class SmokeSimulator(BaseSimulator):
         dt_max: float = 0.1,
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
+        enable_buoyancy: bool = True,
+        buoyancy_alpha: float = 0.1,
     ) -> None:
         """Initialize smoke simulator.
 
@@ -90,6 +92,10 @@ class SmokeSimulator(BaseSimulator):
             cfl_target: Target CFL number
             dt_min: Minimum time step
             dt_max: Maximum time step
+            device: Device to run on
+            dtype: Data type
+            enable_buoyancy: Whether to apply buoyancy
+            buoyancy_alpha: Buoyancy coefficient
         """
         super().__init__(
             dt=dt,
@@ -110,6 +116,8 @@ class SmokeSimulator(BaseSimulator):
         self.vorticity_epsilon = vorticity_epsilon
         self.device = torch.device(device)
         self.dtype = dtype
+        self.enable_buoyancy = enable_buoyancy
+        self.buoyancy_alpha = buoyancy_alpha
 
         # Create appropriate MAC grids based on dimensionality
         if self.ndim == 2:
@@ -146,6 +154,11 @@ class SmokeSimulator(BaseSimulator):
             self.vorticity = torch.zeros(
                 (nz, ny, nx, 3), dtype=self.dtype, device=self.device
             )
+
+        # Initialize control force fields as None
+        self.control_force_u: Optional[torch.Tensor] = None
+        self.control_force_v: Optional[torch.Tensor] = None
+        self.control_force_w: Optional[torch.Tensor] = None
 
     def add_source(self) -> None:
         """Add smoke source at specified location."""
@@ -203,24 +216,68 @@ class SmokeSimulator(BaseSimulator):
             )
 
     def apply_forces(self) -> None:
-        """Apply buoyancy force to velocity field."""
+        """Apply buoyancy and control forces to velocity field."""
+        # Apply Buoyancy
+        if self.enable_buoyancy:
+            if self.ndim == 2:
+                apply_buoyancy_force_2d(
+                    self.force,
+                    self.velocity,
+                    self.density,
+                    self.dt,
+                    self.nx,
+                    alpha=self.buoyancy_alpha,
+                )
+            else:
+                apply_buoyancy_force_3d(
+                    self.force,
+                    self.velocity,
+                    self.density,
+                    self.dt,
+                    self.nx,
+                    alpha=self.buoyancy_alpha,
+                )
+
+        # Apply Control Forces
+        if self.control_force_u is not None:
+            self._apply_control_force()
+
+    def set_control_force(
+        self,
+        u: torch.Tensor,
+        v: torch.Tensor,
+        w: Optional[torch.Tensor] = None,
+    ) -> None:
+        """Set external control force fields.
+
+        Args:
+            u: x-component of force
+            v: y-component of force
+            w: z-component of force (3D only)
+        """
+        self.control_force_u = u
+        self.control_force_v = v
+        if self.ndim == 3:
+            self.control_force_w = w
+
+    def _apply_control_force(self) -> None:
+        """Apply the set control force to the velocity field."""
         if self.ndim == 2:
-            apply_buoyancy_force_2d(
+            apply_external_force_2d(
                 self.force,
                 self.velocity,
-                self.density,
+                self.control_force_u,
+                self.control_force_v,
                 self.dt,
-                self.nx,
-                alpha=0.1,
             )
         else:
-            apply_buoyancy_force_3d(
+            apply_external_force_3d(
                 self.force,
                 self.velocity,
-                self.density,
+                self.control_force_u,
+                self.control_force_v,
+                self.control_force_w,
                 self.dt,
-                self.nx,
-                alpha=0.1,
             )
 
     def set_boundary_conditions(self) -> None:
@@ -236,8 +293,8 @@ class SmokeSimulator(BaseSimulator):
         Open boundaries at top, left, and right (outflow)
         Closed boundary at bottom (no-slip wall)
         """
-        # x-velocity (u) boundary conditions
-        u = self.velocity.u_data
+        # x-velocity (u) boundary conditions - create new tensor to preserve gradients
+        u = self.velocity.u_data.clone()
 
         # Left/right boundaries: open (outflow - extrapolate)
         u[:, 0] = u[:, 1]
@@ -249,8 +306,10 @@ class SmokeSimulator(BaseSimulator):
         # Top boundary: open (outflow - extrapolate)
         u[-1, :] = u[-2, :]
 
+        self.velocity.u_data = u
+
         # y-velocity (v) boundary conditions
-        v = self.velocity.v_data
+        v = self.velocity.v_data.clone()
 
         # Bottom boundary: no penetration (v = 0)
         v[0, :] = 0
@@ -262,8 +321,10 @@ class SmokeSimulator(BaseSimulator):
         v[:, 0] = v[:, 1]
         v[:, -1] = v[:, -2]
 
+        self.velocity.v_data = v
+
         # Pressure boundary conditions
-        p = self.pressure
+        p = self.pressure.clone()
 
         # All boundaries: dp/dn = 0 (Neumann BC for all)
         p[:, 0] = p[:, 1]
@@ -271,14 +332,16 @@ class SmokeSimulator(BaseSimulator):
         p[0, :] = p[1, :]
         p[-1, :] = p[-2, :]
 
+        self.pressure = p
+
     def _set_boundary_conditions_3d(self) -> None:
         """Set 3D boundary conditions
 
         Open boundaries at top and all sides (outflow)
         Closed boundary at bottom (no-slip wall)
         """
-        # x-velocity (u) boundary conditions
-        u = self.velocity.u_data
+        # x-velocity (u) boundary conditions - create new tensor
+        u = self.velocity.u_data.clone()
 
         # Left/right boundaries: open (outflow - extrapolate)
         u[:, :, 0] = u[:, :, 1]
@@ -294,8 +357,10 @@ class SmokeSimulator(BaseSimulator):
         u[0, :, :] = u[1, :, :]
         u[-1, :, :] = u[-2, :, :]
 
+        self.velocity.u_data = u
+
         # y-velocity (v) boundary conditions
-        v = self.velocity.v_data
+        v = self.velocity.v_data.clone()
 
         # Left/right boundaries: open (outflow - extrapolate)
         v[:, :, 0] = v[:, :, 1]
@@ -311,8 +376,10 @@ class SmokeSimulator(BaseSimulator):
         v[0, :, :] = v[1, :, :]
         v[-1, :, :] = v[-2, :, :]
 
+        self.velocity.v_data = v
+
         # z-velocity (w) boundary conditions
-        w = self.velocity.w_data
+        w = self.velocity.w_data.clone()
 
         # Left/right boundaries: open (outflow - extrapolate)
         w[:, :, 0] = w[:, :, 1]
@@ -328,8 +395,10 @@ class SmokeSimulator(BaseSimulator):
         w[0, :, :] = w[1, :, :]
         w[-1, :, :] = w[-2, :, :]
 
+        self.velocity.w_data = w
+
         # Pressure boundary conditions
-        p = self.pressure
+        p = self.pressure.clone()
 
         # All boundaries: dp/dn = 0 (Neumann BC for all)
         p[:, :, 0] = p[:, :, 1]
@@ -338,6 +407,8 @@ class SmokeSimulator(BaseSimulator):
         p[:, -1, :] = p[:, -2, :]
         p[0, :, :] = p[1, :, :]
         p[-1, :, :] = p[-2, :, :]
+
+        self.pressure = p
 
     def compute_divergence(self) -> None:
         """Compute velocity divergence."""
@@ -415,6 +486,9 @@ class SmokeSimulator(BaseSimulator):
                 self.ny,
                 self.nx,
             )
+
+        # Apply boundary conditions after velocity correction
+        self.set_boundary_conditions()
 
     def compute_vorticity(self) -> None:
         """Compute vorticity field."""

@@ -36,8 +36,10 @@ def apply_buoyancy_force_2d(
     # Average adjacent cells to interior y-faces
     buoyancy_at_faces = 0.5 * (buoyancy[:-1, :] + buoyancy[1:, :])
 
-    # Apply to interior v-faces (y-velocity)
-    force.v_data[1:-1, :].add_(buoyancy_at_faces * scaling_factor)
+    # Apply to interior v-faces (y-velocity) - differentiable version
+    v_force = force.v_data.clone()
+    v_force[1:-1, :] = v_force[1:-1, :] + buoyancy_at_faces * scaling_factor
+    force.v_data = v_force
 
     # Update velocities with forces
     grid_ops.apply_force_to_velocity_2d(velocity, force, dt)
@@ -71,8 +73,10 @@ def apply_buoyancy_force_3d(
     # Average adjacent cells to interior y-faces
     buoyancy_at_faces = 0.5 * (buoyancy[:, :-1, :] + buoyancy[:, 1:, :])
 
-    # Apply to interior v-faces (y-velocity)
-    force.v_data[:, 1:-1, :].add_(buoyancy_at_faces * scaling_factor)
+    # Apply to interior v-faces (y-velocity) - differentiable version
+    v_force = force.v_data.clone()
+    v_force[:, 1:-1, :] = v_force[:, 1:-1, :] + buoyancy_at_faces * scaling_factor
+    force.v_data = v_force
 
     # Update all velocity components
     grid_ops.apply_force_to_velocity_3d(velocity, force, dt)

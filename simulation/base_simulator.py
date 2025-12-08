@@ -43,18 +43,25 @@ class BaseSimulator(ABC):
         self.simulation_time = 0.0  # Track total accumulated simulation time
 
     def step(self) -> None:
-        """Execute one simulation step with adaptive time stepping."""
+        """Execute one simulation step with adaptive time stepping.
+
+        1. Add source
+        2. Advect density and velocity
+        3. Apply forces (buoyancy + external)
+        4. Apply boundary conditions (after forces)
+        5. Pressure projection
+        """
         self.dt = self.compute_adaptive_timestep()
         self.add_source()
-        self.apply_forces()
-        self.solve_pressure()
         self.advect()
+        self.apply_forces()
+        self.set_boundary_conditions()
+        self.solve_pressure()
         self.force.reset()
         self.simulation_time += self.dt
 
     def solve_pressure(self) -> None:
         """Solve pressure projection to enforce incompressibility."""
-        self.set_boundary_conditions()
         self.compute_divergence()
         self.solve_poisson()
         self.correct_velocity()
