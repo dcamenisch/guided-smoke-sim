@@ -6,7 +6,6 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
-from simulation.base_simulator import BaseSimulator
 from physics.buoyancy import apply_buoyancy_force_2d, apply_buoyancy_force_3d
 from physics.vorticity_confinement import (
     apply_vorticity_confinement_2d,
@@ -14,10 +13,7 @@ from physics.vorticity_confinement import (
 )
 from physics.external_force import apply_external_force_2d, apply_external_force_3d
 from core import MACGrid2D, MACGrid3D
-from kernels.poisson import (
-    solve_poisson_rb_gauss_seidel_2d,
-    solve_poisson_rb_gauss_seidel_3d,
-)
+from kernels.linear_solver import ConjugateGradientSolver
 from kernels.velocity import correct_velocity_kernel_2d, correct_velocity_kernel_3d
 from kernels.advection import (
     advect_density_kernel_2d,
@@ -50,7 +46,7 @@ def _to_numpy(array: Any) -> Any:
     return array
 
 
-class SmokeSimulator(BaseSimulator):
+class SmokeSimulator:
     """Unified smoke simulator for 2D and 3D.
 
     Dimensionality is determined by nz parameter:
@@ -63,15 +59,12 @@ class SmokeSimulator(BaseSimulator):
         nx: int = 128,
         ny: int = 192,
         nz: Optional[int] = None,
-        dt: float = 0.07,
+        dt: float = 0.0416667,
         tolerance: float = 1e-5,
         max_iterations: int = 1000,
-        use_maccormack: bool = True,
-        advection_rk_order: int = 1,
+        use_maccormack: bool = False,
+        advection_rk_order: int = 3,
         vorticity_epsilon: float = 0.0,
-        cfl_target: float = 1.0,
-        dt_min: float = 0.001,
-        dt_max: float = 0.1,
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
         enable_buoyancy: bool = True,
@@ -89,22 +82,16 @@ class SmokeSimulator(BaseSimulator):
             use_maccormack: Use MacCormack (True) or semi-Lagrangian (False)
             advection_rk_order: RK order for semi-Lagrangian (1 or 3)
             vorticity_epsilon: Vorticity confinement strength (0.0=off)
-            cfl_target: Target CFL number
-            dt_min: Minimum time step
-            dt_max: Maximum time step
             device: Device to run on
             dtype: Data type
             enable_buoyancy: Whether to apply buoyancy
             buoyancy_alpha: Buoyancy coefficient
         """
-        super().__init__(
-            dt=dt,
-            tolerance=tolerance,
-            max_iterations=max_iterations,
-            cfl_target=cfl_target,
-            dt_min=dt_min,
-            dt_max=dt_max,
-        )
+        self.dt = dt
+        self.dt_initial = dt
+        self.tolerance = tolerance
+        self.max_iterations = max_iterations
+        self.simulation_time = 0.0
 
         # Determine dimensionality
         self.ndim = 2 if nz is None else 3
@@ -155,10 +142,41 @@ class SmokeSimulator(BaseSimulator):
                 (nz, ny, nx, 3), dtype=self.dtype, device=self.device
             )
 
+        # Initialize sparse solver
+        self.cg_solver = ConjugateGradientSolver(nx, ny, self.nz, self.dx)
+
         # Initialize control force fields as None
         self.control_force_u: Optional[torch.Tensor] = None
         self.control_force_v: Optional[torch.Tensor] = None
         self.control_force_w: Optional[torch.Tensor] = None
+
+    def step(self) -> None:
+        """Execute one simulation step.
+
+        1. Advect density and velocity
+        2. Apply forces (buoyancy + external)
+        3. Apply boundary conditions (after forces)
+        4. Pressure projection
+        """
+        self.advect()
+        self.apply_forces()
+        self.set_boundary_conditions()
+        self.solve_pressure()
+        self.force.reset()
+        self.simulation_time += self.dt
+
+    def solve_pressure(self) -> None:
+        """Solve pressure projection to enforce incompressibility."""
+        self.compute_divergence()
+        self.solve_poisson()
+        self.correct_velocity()
+        self.compute_vorticity()
+        self.compute_divergence()
+
+    def advect(self) -> None:
+        """Advect all quantities through the velocity field."""
+        self.advect_density()
+        self.advect_velocity()
 
     def add_source(self) -> None:
         """Add smoke source at specified location."""
@@ -421,7 +439,7 @@ class SmokeSimulator(BaseSimulator):
             dvdy = (v[1:, :] - v[:-1, :]) / self.dx
 
             # Sum all partial derivatives - both have shape (ny, nx)
-            self.divergence[:, :] = dudx + dvdy
+            self.divergence = dudx + dvdy
         else:
             w = self.velocity.w_data
 
@@ -431,36 +449,23 @@ class SmokeSimulator(BaseSimulator):
             dwdz = (w[1:, :, :] - w[:-1, :, :]) / self.dx
 
             # Sum all partial derivatives - all have shape (nz, ny, nx)
-            self.divergence[:, :, :] = dudx + dvdy + dwdz
+            self.divergence = dudx + dvdy + dwdz
 
     def solve_poisson(self) -> None:
-        """Solve Poisson equation for pressure using Red-Black Gauss-Seidel"""
-        rho = 1.0
-        if self.ndim == 2:
-            self.pressure = solve_poisson_rb_gauss_seidel_2d(
-                self.pressure,
-                self.divergence,
-                self.dx,
-                self.dt,
-                rho,
-                self.max_iterations,
-                self.tolerance,
-                self.ny,
-                self.nx,
-            )
-        else:
-            self.pressure = solve_poisson_rb_gauss_seidel_3d(
-                self.pressure,
-                self.divergence,
-                self.dx,
-                self.dt,
-                rho,
-                self.max_iterations,
-                self.tolerance,
-                self.nz,
-                self.ny,
-                self.nx,
-            )
+        """Solve Poisson equation for pressure using Conjugate Gradient."""
+        # All cells are active (fluid domain)
+        active_mask = torch.ones_like(self.divergence, dtype=torch.bool)
+
+        # RHS for Poisson: -div(u) / dt (assuming rho=1)
+        rhs = -self.divergence / self.dt
+
+        self.pressure = self.cg_solver.solve(
+            rhs,
+            active_mask,
+            p_init=self.pressure,
+            tol=self.tolerance,
+            max_iter=self.max_iterations,
+        )
 
     def correct_velocity(self) -> None:
         """Correct velocity with pressure gradient."""
@@ -492,15 +497,18 @@ class SmokeSimulator(BaseSimulator):
 
     def compute_vorticity(self) -> None:
         """Compute vorticity field."""
+        vorticity_tmp = torch.zeros_like(self.vorticity)
+
         if self.ndim == 2:
             compute_vorticity_kernel_2d(
-                self.vorticity,
+                vorticity_tmp,
                 self.velocity.u_data,
                 self.velocity.v_data,
                 self.dx,
                 self.ny,
                 self.nx,
             )
+            self.vorticity = vorticity_tmp
 
             # Apply vorticity confinement if enabled
             if self.vorticity_epsilon > 0.0:
@@ -514,7 +522,7 @@ class SmokeSimulator(BaseSimulator):
                 )
         else:
             compute_vorticity_kernel_3d(
-                self.vorticity,
+                vorticity_tmp,
                 self.velocity.u_data,
                 self.velocity.v_data,
                 self.velocity.w_data,
@@ -523,6 +531,7 @@ class SmokeSimulator(BaseSimulator):
                 self.ny,
                 self.nx,
             )
+            self.vorticity = vorticity_tmp
 
             # Apply vorticity confinement if enabled
             if self.vorticity_epsilon > 0.0:
@@ -717,35 +726,6 @@ class SmokeSimulator(BaseSimulator):
             )
 
             return torch.sqrt(u_center**2 + v_center**2 + w_center**2)
-
-    def compute_adaptive_timestep(self) -> float:
-        """Compute adaptive time step based on CFL condition.
-
-        Returns:
-            Adaptive dt clamped between dt_min and dt_max
-        """
-        if self.ndim == 2:
-            max_u = torch.max(torch.abs(self.velocity.u_data)).item()
-            max_v = torch.max(torch.abs(self.velocity.v_data)).item()
-            max_velocity = max(max_u, max_v)
-        else:
-            max_u = torch.max(torch.abs(self.velocity.u_data)).item()
-            max_v = torch.max(torch.abs(self.velocity.v_data)).item()
-            max_w = torch.max(torch.abs(self.velocity.w_data)).item()
-            max_velocity = max(max_u, max_v, max_w)
-
-        # Compute CFL-based time step
-        if max_velocity > 1e-10:
-            # CFL condition: dt = CFL * dx / max_velocity
-            dt_cfl = self.cfl_target * self.dx / max_velocity
-            dt = max(self.dt_min, min(dt_cfl, self.dt_max))
-            self.current_cfl = (max_velocity * dt) / self.dx
-        else:
-            # No motion, use maximum allowed time step
-            dt = self.dt_max
-            self.current_cfl = 0.0
-
-        return dt
 
     def export_to_npz(self, filepath: str, timestep: Optional[int] = None) -> None:
         """Export simulation state to NPZ format

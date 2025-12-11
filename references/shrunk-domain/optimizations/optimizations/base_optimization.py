@@ -141,20 +141,10 @@ class BaseOptimization(object):
             optimizer
 
         """
-        if self.opt.optimizer == "sgd":
-            return torch.optim.SGD(parameters, lr=lr)
-        elif self.opt.optimizer == "adam":
-            return torch.optim.Adam(parameters, lr=lr)
-        elif self.opt.optimizer == "adagrad":
-            return torch.optim.Adagrad(parameters, lr=lr)
-        elif self.opt.optimizer == "rmsprop":
-            return torch.optim.RMSprop(parameters, lr=lr)
-        elif self.opt.optimizer == "pytorch_lbfgs":
-            return FullBatchLBFGS(
-                parameters,
-                lr=lr,
-                line_search=self.opt.lbfgs_line_search_fcn,
-                history_size=self.opt.lbfgs_history_size,
-            )
-        else:
-            raise ValueError("Unrecognized opt.optimizer.")
+
+        return FullBatchLBFGS(
+            parameters,
+            lr=lr,
+            line_search=self.opt.lbfgs_line_search_fcn,
+            history_size=self.opt.lbfgs_history_size,
+        )

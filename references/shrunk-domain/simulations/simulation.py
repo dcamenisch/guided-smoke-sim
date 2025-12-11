@@ -195,15 +195,21 @@ class Simulation(object):
             density=self.real_op.grid2array(self.density),
             vel=self.mac_op.grid2array(self.vel),
             force=self.mac_op.grid2array(self.force),
-            pressure=self.real_op.grid2array(self.pressure)
-            if self.opt.save_pressure
-            else None,
-            divergence=self.mac_op.grid2array(self.mac_op.get_divergence(self.vel))
-            if self.opt.save_div
-            else None,
-            vorticity=self.mac_op.grid2array(self.mac_op.get_curl(self.vel))
-            if self.opt.save_vort
-            else None,
+            pressure=(
+                self.real_op.grid2array(self.pressure)
+                if self.opt.save_pressure
+                else None
+            ),
+            divergence=(
+                self.mac_op.grid2array(self.mac_op.get_divergence(self.vel))
+                if self.opt.save_div
+                else None
+            ),
+            vorticity=(
+                self.mac_op.grid2array(self.mac_op.get_curl(self.vel))
+                if self.opt.save_vort
+                else None
+            ),
         )
 
     def _save_quantity(self, step):

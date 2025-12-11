@@ -8,7 +8,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append(os.getcwd())
 from optimizations.optimization_options import OptimizationOptions
-from optimizations.create_optimization import create_optimization
+
+from optimizations.optimizations.progressive_frequency_optimization import (
+    ProgressiveFrequencyOptimization,
+)
 
 
 def log_message(message, log_filename):
@@ -167,7 +170,7 @@ def learn(
 
 def main():
     opt = OptimizationOptions().parse()
-    optimization = create_optimization(opt)
+    optimization = ProgressiveFrequencyOptimization(opt)
 
     # prepare writer
     writer = SummaryWriter(log_dir=opt.save_path)

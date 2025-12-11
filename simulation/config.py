@@ -45,9 +45,6 @@ class SimulationConfig:
             use_maccormack=self.use_maccormack,
             advection_rk_order=self.advection_rk_order,
             vorticity_epsilon=self.vorticity_epsilon,
-            cfl_target=self.cfl_target,
-            dt_min=self.dt_min,
-            dt_max=self.dt_max,
             device=self.device,
             dtype=self.dtype,
         )

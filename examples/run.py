@@ -112,18 +112,14 @@ def main() -> None:
 
     # Calculate frame time and dt_max from fps
     frame_time = 1.0 / args.fps
-    dt_max = frame_time  # Cap dt at frame time to prevent overshooting
-    print(
-        f"Target frame rate: {args.fps} fps (frame_time={frame_time:.4f}s, dt_max={dt_max:.4f}s)"
-    )
+    print(f"Target frame rate: {args.fps} fps (frame_time={frame_time:.4f}s)")
 
     # Create simulator with appropriate dimensions
     common_config = dict(
+        dt=frame_time,
         use_maccormack=not args.semi_lagrangian,
         advection_rk_order=args.rk_order,
         vorticity_epsilon=args.vorticity,
-        cfl_target=args.cfl,
-        dt_max=dt_max,
     )
 
     if ndim == 2:
@@ -151,6 +147,7 @@ def main() -> None:
             steps_this_frame = 0
 
             while sim.simulation_time < target_time:
+                sim.add_source()
                 sim.step()
                 steps_this_frame += 1
 

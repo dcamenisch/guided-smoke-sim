@@ -229,7 +229,7 @@ def _vector_plot(
         plt.axis("off")
     elif plot_type == "ARROW_COLOR":
         r = int(res_x / 32) if res_x >= 64 else 1
-        speed = np.sqrt(U ** 2 + V ** 2)
+        speed = np.sqrt(U**2 + V**2)
         plot = plt.quiver(
             X[::r, ::r],
             Y[::r, ::r],
@@ -249,7 +249,7 @@ def _vector_plot(
         plt.tight_layout()
         plt.axis("off")
     elif plot_type == "STREAM_COLOR":
-        speed = np.sqrt(U ** 2 + V ** 2)
+        speed = np.sqrt(U**2 + V**2)
         plot = plt.streamplot(
             X,
             Y,
@@ -266,26 +266,26 @@ def _vector_plot(
         plt.tight_layout()
         plt.axis("off")
     elif plot_type == "LIC":
-        from licplot import lic_internal
+        # from licplot import lic_internal
 
         np.random.seed(4)
-        if upsample:
-            ratio = upsample_short_size / min(res_x, res_y)
-            res_x = int(ratio * res_x)
-            res_y = int(ratio * res_y)
-            # assumes square resolution
-            U = resize(U, output_shape=(res_x, res_y))
-            V = resize(V, output_shape=(res_x, res_y))
-        kernel = np.sin(np.arange(kernel_len) * np.pi / kernel_len)
-        kernel = kernel.astype(np.float32)
-        texture = np.random.randn(int(res_x / 4), int(res_y / 4)).astype(np.float32)
-        texture = resize(texture, (res_x, res_y), order=1)
-        img = lic_internal.line_integral_convolution(U, V, texture, kernel)
-        plt.clf()
-        plt.axis("off")
-        plt.figimage(img[::-1], cmap="gray", vmin=np.min(img) / 3, vmax=np.max(img) / 3)
-        plt.gcf().set_size_inches((res_x / float(dpi), res_y / float(dpi)))
-        np.random.seed()
+        # if upsample:
+        #     ratio = upsample_short_size / min(res_x, res_y)
+        #     res_x = int(ratio * res_x)
+        #     res_y = int(ratio * res_y)
+        #     # assumes square resolution
+        #     U = resize(U, output_shape=(res_x, res_y))
+        #     V = resize(V, output_shape=(res_x, res_y))
+        # kernel = np.sin(np.arange(kernel_len) * np.pi / kernel_len)
+        # kernel = kernel.astype(np.float32)
+        # texture = np.random.randn(int(res_x / 4), int(res_y / 4)).astype(np.float32)
+        # texture = resize(texture, (res_x, res_y), order=1)
+        # img = lic_internal.line_integral_convolution(U, V, texture, kernel)
+        # plt.clf()
+        # plt.axis("off")
+        # plt.figimage(img[::-1], cmap="gray", vmin=np.min(img) / 3, vmax=np.max(img) / 3)
+        # plt.gcf().set_size_inches((res_x / float(dpi), res_y / float(dpi)))
+        # np.random.seed()
     else:
         raise ValueError("_vector_plot: plot_type not recognized.")
     if save:
@@ -527,7 +527,7 @@ def get_gaussian_kernel(
     xy_grid = torch.stack([x_grid, y_grid], dim=-1).float()
 
     mean = (kernel_size - 1) / 2.0
-    variance = sigma ** 2.0
+    variance = sigma**2.0
 
     # Calculate the 2-dimensional gaussian kernel which is
     # the product of two gaussian distributions for two different

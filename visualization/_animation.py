@@ -8,7 +8,7 @@ from typing import Optional
 from matplotlib.animation import FuncAnimation
 from matplotlib.figure import Figure
 
-from simulation.base_simulator import BaseSimulator
+from simulation.simulator import SmokeSimulator
 
 PanelUpdater = Callable[[int], None]
 MessageFactory = Callable[[int], str]
@@ -16,7 +16,7 @@ MessageFactory = Callable[[int], str]
 
 def run_animation(
     fig: Figure,
-    simulator: BaseSimulator,
+    simulator: SmokeSimulator,
     panels: Sequence[PanelUpdater],
     frames: int,
     interval: int,
