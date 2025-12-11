@@ -1044,19 +1044,34 @@ def advect_density_maccormack_2d(
     )
 
     # Correction and clamping
-    for y in range(1, ny - 1):
-        for x in range(1, nx - 1):
-            correction = phi_hat[y, x] + 0.5 * (
-                density_tensor[y, x] - phi_hat_hat[y, x]
-            )
+    # Vectorized neighborhood search
+    # Get values for 3x3 neighborhood
+    # We want to find min/max in 3x3 window for each pixel
+    # Use unfold to get sliding windows
 
-            neighbors_min, neighbors_max = grid_ops.find_neighborhood_bounds_2d(
-                density_tensor, y, x, ny, nx
-            )
+    # Pad density for 3x3 window
+    # density_tensor is (ny, nx), so we need to unsqueeze to (1, 1, ny, nx) for pad
+    padded = (
+        F.pad(density_tensor.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode="replicate")
+        .squeeze(0)
+        .squeeze(0)
+    )
+    # Unfold to get (ny, nx, 3, 3)
+    windows = padded.unfold(0, 3, 1).unfold(1, 3, 1)
+    # Reshape to (ny, nx, 9)
+    windows = windows.reshape(ny, nx, 9)
 
-            density_new_tensor[y, x] = torch.clamp(
-                correction, min=neighbors_min, max=neighbors_max
-            )
+    neighbors_min = windows.min(dim=2)[0]
+    neighbors_max = windows.max(dim=2)[0]
+
+    correction = phi_hat + 0.5 * (density_tensor - phi_hat_hat)
+
+    # Apply clamping only to interior
+    density_new_tensor[1 : ny - 1, 1 : nx - 1] = torch.clamp(
+        correction[1 : ny - 1, 1 : nx - 1],
+        min=neighbors_min[1 : ny - 1, 1 : nx - 1],
+        max=neighbors_max[1 : ny - 1, 1 : nx - 1],
+    )
 
     _finalize_output(density_new_tensor, density_new_original, density_new_needs_copy)
 
@@ -1099,17 +1114,28 @@ def advect_u_velocity_maccormack_2d(
         nx=nx,
     )
 
-    for y in range(1, ny - 1):
-        for x in range(1, nx):
-            correction = phi_hat[y, x] + 0.5 * (u_tensor[y, x] - phi_hat_hat[y, x])
+    # Vectorized neighborhood search
+    # Get values for y-1, y, y+1
+    # u_tensor is (ny, nx+1)
+    # We want to iterate over y from 1 to ny-1
+    # And x from 1 to nx (which is 1:nx in slice)
 
-            neighbors_min, neighbors_max = grid_ops.find_neighborhood_bounds_1d_y_2d(
-                u_tensor, y, x, ny
-            )
+    # Slice for y-1, y, y+1
+    # Shape: (ny-2, nx-1)
+    val_curr = u_tensor[1 : ny - 1, 1:nx]
+    val_prev = u_tensor[0 : ny - 2, 1:nx]
+    val_next = u_tensor[2:ny, 1:nx]
 
-            u_new_tensor[y, x] = torch.clamp(
-                correction, min=neighbors_min, max=neighbors_max
-            )
+    neighbors_min = torch.minimum(val_curr, torch.minimum(val_prev, val_next))
+    neighbors_max = torch.maximum(val_curr, torch.maximum(val_prev, val_next))
+
+    correction = phi_hat[1 : ny - 1, 1:nx] + 0.5 * (
+        u_tensor[1 : ny - 1, 1:nx] - phi_hat_hat[1 : ny - 1, 1:nx]
+    )
+
+    u_new_tensor[1 : ny - 1, 1:nx] = torch.clamp(
+        correction, min=neighbors_min, max=neighbors_max
+    )
 
     _finalize_output(u_new_tensor, u_new_original, u_new_needs_copy)
 
@@ -1152,23 +1178,28 @@ def advect_v_velocity_maccormack_2d(
         nx=nx,
     )
 
-    for y in range(1, ny):
-        for x in range(1, nx - 1):
-            correction = phi_hat[y, x] + 0.5 * (v_tensor[y, x] - phi_hat_hat[y, x])
+    # Vectorized neighborhood search
+    # Get values for x-1, x, x+1
+    # v_tensor is (ny+1, nx)
+    # We want to iterate over x from 1 to nx-1
+    # And y from 1 to ny (which is 1:ny in slice)
 
-            neighbors_min = v_tensor[y, x]
-            neighbors_max = v_tensor[y, x]
+    # Slice for x-1, x, x+1
+    # Shape: (ny-1, nx-2)
+    val_curr = v_tensor[1:ny, 1 : nx - 1]
+    val_prev = v_tensor[1:ny, 0 : nx - 2]
+    val_next = v_tensor[1:ny, 2:nx]
 
-            for dx_offset in range(-1, 2):
-                nx_idx = x + dx_offset
-                if 0 <= nx_idx < nx:
-                    val = v_tensor[y, nx_idx]
-                    neighbors_min = torch.minimum(neighbors_min, val)
-                    neighbors_max = torch.maximum(neighbors_max, val)
+    neighbors_min = torch.minimum(val_curr, torch.minimum(val_prev, val_next))
+    neighbors_max = torch.maximum(val_curr, torch.maximum(val_prev, val_next))
 
-            v_new_tensor[y, x] = torch.clamp(
-                correction, min=neighbors_min, max=neighbors_max
-            )
+    correction = phi_hat[1:ny, 1 : nx - 1] + 0.5 * (
+        v_tensor[1:ny, 1 : nx - 1] - phi_hat_hat[1:ny, 1 : nx - 1]
+    )
+
+    v_new_tensor[1:ny, 1 : nx - 1] = torch.clamp(
+        correction, min=neighbors_min, max=neighbors_max
+    )
 
     _finalize_output(v_new_tensor, v_new_original, v_new_needs_copy)
 

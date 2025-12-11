@@ -51,8 +51,8 @@ class BaseSimulator(ABC):
         4. Apply boundary conditions (after forces)
         5. Pressure projection
         """
-        self.dt = self.compute_adaptive_timestep()
-        self.add_source()
+        # self.dt = self.compute_adaptive_timestep()
+        # self.add_source()
         self.advect()
         self.apply_forces()
         self.set_boundary_conditions()
