@@ -1,12 +1,3 @@
-"""
-Keyframe Optimization Example.
-
-This script demonstrates how to optimize a control force field to guide
-the smoke simulation to match specific keyframes (target densities) at specific times.
-
-Based on "Honey, I Shrunk the Domain" (EUROGRAPHICS 2021).
-"""
-
 import sys
 from pathlib import Path
 from typing import Dict
@@ -19,32 +10,28 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from simulation.simulator import SmokeSimulator
-from simulation.controller import FrequencyOptimizer
-
-
-def create_target_density(
-    nx: int, ny: int, center_y_ratio: float, device: torch.device
-) -> torch.Tensor:
-    """Create a target density shape (e.g., a Gaussian blob)."""
-    y = torch.arange(ny, device=device).float()
-    x = torch.arange(nx, device=device).float()
-    grid_y, grid_x = torch.meshgrid(y, x, indexing="ij")
-
-    center_y, center_x = ny * center_y_ratio, nx * 0.5
-    radius = min(nx, ny) * 0.15
-
-    dist_sq = (grid_x - center_x) ** 2 + (grid_y - center_y) ** 2
-    target = torch.exp(-dist_sq / (2 * (radius / 2) ** 2))
-    return target
+from optimization.controller import FrequencyOptimizer
 
 
 def main():
     # Parameters
     nx, ny = 64, 96
-    num_frames = 40
+    num_frames = 100
     dt = 0.1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Load keyframe
+    target_path = "output/keyframes/wind_79.npz"
+    target_data_np = np.load(target_path)["density"]
+    target_date = torch.from_numpy(target_data_np).to(device, dtype=torch.float32)
+
+    keyframes: Dict[int, torch.Tensor] = {79: target_date}
+    keyframe_weights = {79: 1.0}
+
+    band_radii = [1, 3, 8]
+    phase_iters = [5, 5, 5]
+
+    print(f"--- Keyframe Optimization ---")
     print(f"Running on {device}")
 
     # Initialize Simulator with proper settings
@@ -53,24 +40,7 @@ def main():
         ny=ny,
         dt=dt,
         device=device,
-        enable_buoyancy=False,
-        max_iterations=50,
-        advection_rk_order=3,
     )
-
-    # Define Keyframes
-    target_mid = create_target_density(nx, ny, 0.5, device)
-    target_top = create_target_density(nx, ny, 0.8, device)
-
-    keyframes: Dict[int, torch.Tensor] = {20: target_mid, 39: target_top}
-    keyframe_weights = {20: 1.0, 39: 5.0}
-
-    # Base upward wind to help smoke reach targets
-    base_wind_v = torch.full((ny + 1, nx), 0.08, device=device)
-
-    # Source parameters
-    source_mask = create_target_density(nx, ny, 0.15, device) > 0.5
-    source_val = torch.tensor(1.0, device=device)
 
     # Cap max frequency at Nyquist limit
     max_resolution = min(nx, ny) // 2
@@ -78,81 +48,84 @@ def main():
     # Initialize Optimizer
     optimizer = FrequencyOptimizer(
         simulator=sim,
-        initial_resolution=4,
         max_resolution=max_resolution,
         keyframes=keyframes,
         keyframe_weights=keyframe_weights,
-        base_wind=base_wind_v,
         num_frames=num_frames,
-        source_mask=source_mask,
-        source_val=source_val,
+        band_radii=band_radii,
+        phase_iters=phase_iters,
+        use_checkpoint=True,
     )
 
     print(
         f"Starting optimization for {num_frames} frames with {len(keyframes)} keyframes..."
     )
-    print(
-        f"Initial resolution: {optimizer.model.resolution}, Max resolution: {max_resolution}"
-    )
 
     # Optimization Loop
-    epoch = 0
-    max_epochs = 100
+    itr = 1
+    prev_loss = float("inf")
+    for phase in range(len(band_radii)):
+        print(
+            f"--- Phase {phase + 1}: Optimizing with band radius {band_radii[phase]} for {phase_iters[phase]} epochs ---"
+        )
 
-    while epoch < max_epochs and optimizer.model.resolution <= max_resolution:
-        try:
-            current_loss = optimizer.step()
+        for _ in range(phase_iters[phase]):
+            loss = optimizer.step()
+            print(f"Iteration {itr}: Loss = {loss:.6f}")
 
-            if np.isnan(current_loss):
-                print("Error: Loss is NaN! Stopping optimization.")
+            if loss < prev_loss:
+                prev_loss = loss
+            else:
+                print("No improvement, stopping early.")
                 break
 
-            if epoch % 1 == 0:
-                print(
-                    f"Epoch {epoch}: Loss = {current_loss:.6f}, Resolution = {optimizer.model.resolution}"
-                )
+            itr += 1
 
-        except Exception as e:
-            print(f"Optimization failed at Epoch {epoch}: {e}")
-            break
-
-        epoch += 1
-
-    print(
-        f"Optimization finished after {epoch} epochs. Best loss: {optimizer.best_loss:.6f}"
-    )
-
-    # Restore best parameters
-    if optimizer.best_params is not None:
-        optimizer.model.params.data = optimizer.best_params
+    print("--- Optimization Complete ---")
 
     # Visualize Results
+    optimizer.model.compute_force()
+    force_field = optimizer.model.get_force()
+    force_u_stag = force_field[0].detach().cpu().numpy()
+    force_v_stag = force_field[1].detach().cpu().numpy()
+
+    # Interpolate to cell centers
+    force_u = (force_u_stag[:, :-1] + force_u_stag[:, 1:]) * 0.5
+    force_v = (force_v_stag[:-1, :] + force_v_stag[1:, :]) * 0.5
+
+    plt.figure(figsize=(10, 8))
+    plt.title("Optimized Control Force Field")
+
+    # Downsample grid for clearer quiver plot
+    step = 2
+    ny_f, nx_f = force_u.shape
+    y, x = np.mgrid[0:ny_f:step, 0:nx_f:step]
+
+    # Plot magnitude as background
+    magnitude = np.sqrt(force_u**2 + force_v**2)
+    plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6)
+    plt.colorbar(label="Magnitude")
+
+    # Plot vectors
+    plt.quiver(x, y, force_u[::step, ::step], force_v[::step, ::step], color="red")
+
+    plt.savefig("optimized_force_field.png")
+    print("Optimized force field saved to optimized_force_field.png")
+
     frames = []
     with torch.no_grad():
-        current_density = torch.zeros((ny, nx), device=device)
-        current_u = torch.zeros((ny, nx + 1), device=device)
-        current_v = torch.zeros((ny + 1, nx), device=device)
+        sim.reset()
+        optimizer.model.compute_force()
+        force_u, force_v = optimizer.model.get_force()
 
-        force_u, force_v, _ = optimizer.model.compute_force()
-
-        frames.append(current_density.cpu().numpy())
+        frames.append(sim.density.cpu().numpy())
 
         for t in range(num_frames):
-            if t < 15:
-                current_density = torch.where(source_mask, source_val, current_density)
-
-            total_force_v = force_v + base_wind_v
-
-            sim.density = current_density
-            sim.u = current_u
-            sim.v = current_v
-            sim.set_control_force(force_u, total_force_v, None)
+            sim.add_source()
+            sim.set_control_force(force_u, force_v, None)
             sim.step()
 
-            current_density = sim.density
-            current_u = sim.u
-            current_v = sim.v
-            frames.append(current_density.cpu().numpy())
+            frames.append(sim.density.cpu().numpy())
 
     # Plot comparison
     plt.figure(figsize=(15, 5))

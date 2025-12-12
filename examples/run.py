@@ -21,6 +21,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import torch
+
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -72,12 +74,6 @@ def main() -> None:
         help="Vorticity confinement strength (0.0=disabled, 0.1-0.5 typical) (default: 0.0)",
     )
     parser.add_argument(
-        "--cfl",
-        type=float,
-        default=1.0,
-        help="Target CFL number for adaptive time stepping (default: 1.0)",
-    )
-    parser.add_argument(
         "--fps",
         type=float,
         default=24.0,
@@ -106,7 +102,6 @@ def main() -> None:
         print(f"Using Semi-Lagrangian advection with {rk_method} backtracing")
     else:
         print(f"Using MacCormack advection")
-    print(f"Adaptive time stepping enabled (CFL target={args.cfl})")
     if args.vorticity > 0.0:
         print(f"Vorticity confinement enabled (epsilon={args.vorticity})")
 
@@ -123,11 +118,13 @@ def main() -> None:
     )
 
     if ndim == 2:
-        config = SimulationConfig(nx=128, ny=192, **common_config)
+        config = SimulationConfig(nx=64, ny=96, **common_config)
     else:
         config = SimulationConfig(nx=64, ny=128, nz=64, **common_config)
 
     sim = config.create_simulator()
+
+    horizontal_wind = torch.full_like(sim.velocity.u_data, 0.005, device=sim.device)
 
     if args.export:
         print(f"Exporting {args.frames} simulation states to {args.output}/...")
@@ -148,6 +145,10 @@ def main() -> None:
 
             while sim.simulation_time < target_time:
                 sim.add_source()
+                # sim.set_control_force(
+                #     horizontal_wind,
+                #     torch.zeros(sim.velocity.v_data.shape, device=sim.device),
+                # )
                 sim.step()
                 steps_this_frame += 1
 

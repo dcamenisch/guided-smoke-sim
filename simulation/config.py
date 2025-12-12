@@ -21,10 +21,9 @@ class SimulationConfig:
     dt: float = 0.07
     tolerance: float = 1e-5
     max_iterations: int = 1000
-    use_maccormack: bool = True
-    advection_rk_order: int = 1
+    use_maccormack: bool = False
+    advection_rk_order: int = 3
     vorticity_epsilon: float = 0.0
-    cfl_target: float = 1.0
     dt_min: float = 0.001
     dt_max: float = 0.1
     device: str | torch.device = "cpu"

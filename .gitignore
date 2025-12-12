@@ -1,7 +1,11 @@
 .claude
 results/
+output/
+shrunk-domain/
 *.npz
 *.vdb
+*.blend
+*.blend1
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,macos,linux,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,macos,linux,windows

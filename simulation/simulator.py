@@ -150,6 +150,23 @@ class SmokeSimulator:
         self.control_force_v: Optional[torch.Tensor] = None
         self.control_force_w: Optional[torch.Tensor] = None
 
+    def reset(self) -> None:
+        """Reset simulation state to initial conditions."""
+        self.simulation_time = 0.0
+        self.velocity.reset()
+        self.force.reset()
+
+        # Reset scalar fields
+        self.density.zero_()
+        self.pressure.zero_()
+        self.divergence.zero_()
+        self.vorticity.zero_()
+
+        # Reset control forces
+        self.control_force_u = None
+        self.control_force_v = None
+        self.control_force_w = None
+
     def step(self) -> None:
         """Execute one simulation step.
 
