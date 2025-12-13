@@ -93,6 +93,10 @@ def main():
 
             itr += 1
 
+        if loss < 1e-6:
+            print("Loss threshold reached, ending optimization.")
+            break
+
     print("--- Optimization Complete ---")
 
     # Visualize Results
