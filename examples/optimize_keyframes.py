@@ -97,25 +97,71 @@ def main():
 
     # Visualize Results
     optimizer.model.compute_force()
-    force_u, force_v = optimizer.model.get_force_centered()
-    force_u = force_u.detach().cpu().numpy()
-    force_v = force_v.detach().cpu().numpy()
+    force_centered = optimizer.model.get_force_centered()
 
-    plt.figure(figsize=(10, 8))
-    plt.title("Optimized Control Force Field")
+    if nz is not None:  # 3D case
+        force_u, force_v, force_w = force_centered
+        # Take mid-plane slice for visualization
+        mid_z = nz // 2
+        force_u_slice = force_u[mid_z].detach().cpu().numpy()
+        force_v_slice = force_v[mid_z].detach().cpu().numpy()
+        force_w_slice = force_w[mid_z].detach().cpu().numpy()
 
-    # Downsample grid for clearer quiver plot
-    step = 2
-    ny_f, nx_f = force_u.shape
-    y, x = np.mgrid[0:ny_f:step, 0:nx_f:step]
+        plt.figure(figsize=(15, 5))
 
-    # Plot magnitude as background
-    magnitude = np.sqrt(force_u**2 + force_v**2)
-    plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6, vmin=0.0)
-    plt.colorbar(label="Magnitude")
+        # XY slice (mid-z)
+        plt.subplot(1, 3, 1)
+        plt.title(f"Force Field XY (z={mid_z})")
+        step = 2
+        ny_f, nx_f = force_u_slice.shape
+        y, x = np.mgrid[0:ny_f:step, 0:nx_f:step]
+        magnitude = np.sqrt(force_u_slice**2 + force_v_slice**2)
+        plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6, vmin=0.0)
+        plt.colorbar(label="Magnitude")
+        plt.quiver(
+            x,
+            y,
+            force_u_slice[::step, ::step],
+            force_v_slice[::step, ::step],
+            color="red",
+        )
 
-    # Plot vectors
-    plt.quiver(x, y, force_u[::step, ::step], force_v[::step, ::step], color="red")
+        # W component magnitude
+        plt.subplot(1, 3, 2)
+        plt.title(f"Force W Component (z={mid_z})")
+        plt.imshow(np.abs(force_w_slice), origin="lower", cmap="RdBu_r", vmin=0.0)
+        plt.colorbar(label="W Force")
+
+        # Maximum intensity projection along z
+        plt.subplot(1, 3, 3)
+        plt.title("Max Projection (XY)")
+        force_u_np = force_u.detach().cpu().numpy()
+        force_v_np = force_v.detach().cpu().numpy()
+        mag_3d = np.sqrt(force_u_np**2 + force_v_np**2)
+        max_proj = np.max(mag_3d, axis=0)
+        plt.imshow(max_proj, origin="lower", cmap="Blues", vmin=0.0)
+        plt.colorbar(label="Max Magnitude")
+
+    else:  # 2D case
+        force_u, force_v = force_centered
+        force_u = force_u.detach().cpu().numpy()
+        force_v = force_v.detach().cpu().numpy()
+
+        plt.figure(figsize=(10, 8))
+        plt.title("Optimized Control Force Field")
+
+        # Downsample grid for clearer quiver plot
+        step = 2
+        ny_f, nx_f = force_u.shape
+        y, x = np.mgrid[0:ny_f:step, 0:nx_f:step]
+
+        # Plot magnitude as background
+        magnitude = np.sqrt(force_u**2 + force_v**2)
+        plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6, vmin=0.0)
+        plt.colorbar(label="Magnitude")
+
+        # Plot vectors
+        plt.quiver(x, y, force_u[::step, ::step], force_v[::step, ::step], color="red")
 
     plt.savefig("optimized_force_field.png")
     print("Optimized force field saved to optimized_force_field.png")
@@ -131,20 +177,33 @@ def main():
     for i, (t, target) in enumerate(keyframes.items()):
         plt.subplot(2, len(keyframes) + 1, i + 2)
         plt.title(f"Target Frame {t}")
-        plt.imshow(target.cpu().numpy(), origin="lower", vmin=0, vmax=1)
+        target_np = target.cpu().numpy()
+        if nz is not None:  # 3D - show max projection
+            target_vis = np.max(target_np, axis=0)
+        else:
+            target_vis = target_np
+        plt.imshow(target_vis, origin="lower", vmin=0, vmax=1)
         plt.axis("off")
 
     # Plot Results at Keyframes
     for i, (t, target) in enumerate(keyframes.items()):
         plt.subplot(2, len(keyframes) + 1, len(keyframes) + 1 + i + 2)
         plt.title(f"Result Frame {t}")
-        plt.imshow(frames[t], origin="lower", vmin=0, vmax=1)
+        if nz is not None:  # 3D - show max projection
+            result_vis = np.max(frames[t], axis=0)
+        else:
+            result_vis = frames[t]
+        plt.imshow(result_vis, origin="lower", vmin=0, vmax=1)
         plt.axis("off")
 
     # Plot Initial
     plt.subplot(2, len(keyframes) + 1, 1)
     plt.title("Initial")
-    plt.imshow(frames[0], origin="lower", vmin=0, vmax=1)
+    if nz is not None:  # 3D - show max projection
+        initial_vis = np.max(frames[0], axis=0)
+    else:
+        initial_vis = frames[0]
+    plt.imshow(initial_vis, origin="lower", vmin=0, vmax=1)
     plt.axis("off")
 
     plt.tight_layout()
@@ -155,11 +214,19 @@ def main():
     import matplotlib.animation as animation
 
     fig, ax = plt.subplots()
-    im = ax.imshow(frames[0], origin="lower", vmin=0, vmax=1, animated=True)
+    if nz is not None:  # 3D - show max projection
+        initial_frame = np.max(frames[0], axis=0)
+    else:
+        initial_frame = frames[0]
+    im = ax.imshow(initial_frame, origin="lower", vmin=0, vmax=1, animated=True)
     ax.set_title("Frame 0")
 
     def update(frame_idx):
-        im.set_array(frames[frame_idx])
+        if nz is not None:  # 3D - show max projection
+            frame_vis = np.max(frames[frame_idx], axis=0)
+        else:
+            frame_vis = frames[frame_idx]
+        im.set_array(frame_vis)
         ax.set_title(f"Frame {frame_idx}")
         return (im,)
 
