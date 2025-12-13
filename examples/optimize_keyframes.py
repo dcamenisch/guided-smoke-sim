@@ -42,19 +42,15 @@ def main():
         device=device,
     )
 
-    # Cap max frequency at Nyquist limit
-    max_resolution = min(nx, ny) // 2
-
     # Initialize Optimizer
     optimizer = FrequencyOptimizer(
         simulator=sim,
-        max_resolution=max_resolution,
         keyframes=keyframes,
         keyframe_weights=keyframe_weights,
         num_frames=num_frames,
         band_radii=band_radii,
         phase_iters=phase_iters,
-        use_checkpoint=True,
+        use_checkpoint=False,
     )
 
     print(
@@ -76,7 +72,7 @@ def main():
             if loss < prev_loss:
                 prev_loss = loss
             else:
-                print("No improvement, stopping early.")
+                print("No improvement, continuing to next phase early.")
                 break
 
             itr += 1
@@ -85,13 +81,9 @@ def main():
 
     # Visualize Results
     optimizer.model.compute_force()
-    force_field = optimizer.model.get_force()
-    force_u_stag = force_field[0].detach().cpu().numpy()
-    force_v_stag = force_field[1].detach().cpu().numpy()
-
-    # Interpolate to cell centers
-    force_u = (force_u_stag[:, :-1] + force_u_stag[:, 1:]) * 0.5
-    force_v = (force_v_stag[:-1, :] + force_v_stag[1:, :]) * 0.5
+    force_u, force_v = optimizer.model.get_force_centered()
+    force_u = force_u.detach().cpu().numpy()
+    force_v = force_v.detach().cpu().numpy()
 
     plt.figure(figsize=(10, 8))
     plt.title("Optimized Control Force Field")
@@ -103,7 +95,7 @@ def main():
 
     # Plot magnitude as background
     magnitude = np.sqrt(force_u**2 + force_v**2)
-    plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6)
+    plt.imshow(magnitude, origin="lower", cmap="Blues", alpha=0.6, vmin=0.0)
     plt.colorbar(label="Magnitude")
 
     # Plot vectors
@@ -112,20 +104,9 @@ def main():
     plt.savefig("optimized_force_field.png")
     print("Optimized force field saved to optimized_force_field.png")
 
-    frames = []
-    with torch.no_grad():
-        sim.reset()
-        optimizer.model.compute_force()
-        force_u, force_v = optimizer.model.get_force()
-
-        frames.append(sim.density.cpu().numpy())
-
-        for t in range(num_frames):
-            sim.add_source()
-            sim.set_control_force(force_u, force_v, None)
-            sim.step()
-
-            frames.append(sim.density.cpu().numpy())
+    # Run simulation with optimized force
+    frames_tensors = optimizer.evaluate(num_frames)
+    frames = [f.cpu().numpy() for f in frames_tensors]
 
     # Plot comparison
     plt.figure(figsize=(15, 5))

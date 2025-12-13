@@ -19,35 +19,16 @@ class FrequencyModel(torch.nn.Module):
         use_stream_fcn: bool = True,
         device: Optional[torch.device] = None,
     ) -> None:
-        """Initialize model.
-
-        Args:
-            simulator: The smoke simulator instance.
-            initial_resolution: Initial size of the frequency band (radius parameter).
-            use_stream_fcn: If True, use stream function (divergence-free).
-                           If False, optimize force directly.
-            device: Torch device.
-        """
         super().__init__()
         self.sim = simulator
         self.device = device or simulator.device
         self.ndim = simulator.ndim
         self.use_stream_fcn = use_stream_fcn
-
-        # Resolution represents the radius parameter for progressive frequency bands
         self.resolution = initial_resolution
-
-        # Force field cache
         self.force = None
-
-        # Initialize parameters with aspect-ratio aware shape
         self._initialize_parameters()
 
     def _get_freq_size(self, resolution: int) -> Tuple[int, ...]:
-        """Compute frequency parameter size accounting for aspect ratio.
-
-        Matches reference: progressive_frequency_model.py:113-129
-        """
         size = (resolution - 1) * 0.5
 
         if self.ndim == 2:
@@ -73,29 +54,15 @@ class FrequencyModel(torch.nn.Module):
             return (3, size_z, size_y, size_x, 2)
 
     def _initialize_parameters(self) -> None:
-        """Initialize frequency domain parameters.
-
-        Matches reference: progressive_frequency_model.py:103-108
-        """
         param_shape = self._get_freq_size(self.resolution)
 
         # Parameters represent Fourier coefficients (real, imag)
-        # Initialized to zeros (reference convention)
         self.param = torch.nn.Parameter(
             torch.zeros(param_shape, dtype=self.sim.dtype, device=self.device)
         )
         self.param.requires_grad = True
 
     def reorganize_parameters(self, resolution: int) -> None:
-        """Enlarge frequency bands through padding (progressive optimization).
-
-        Matches reference: progressive_frequency_model.py:110-115 (reorganize_parameters_)
-        Pads frequency domain with zeros to increase resolution without
-        changing already-learned low-frequency content.
-
-        Args:
-            resolution: New resolution (size = 2*resolution + 1).
-        """
         if resolution <= self.resolution:
             return
 
@@ -108,21 +75,9 @@ class FrequencyModel(torch.nn.Module):
         self.param = torch.nn.Parameter(new_param)
         self.param.requires_grad = True
 
-    def set_resolution(self, new_resolution: int) -> None:
-        """Alias for reorganize_parameters for backward compatibility."""
-        self.reorganize_parameters(new_resolution)
-
     def _pad_to_target_size(
         self, tensor: torch.Tensor, target_size: Tuple[int, ...]
     ) -> torch.Tensor:
-        """Pad tensor to target size, centering the original content.
-
-        Matches reference: progressive_frequency_model.py:131-154 (_pad)
-
-        Args:
-            tensor: Input of size [C, (D), H, W, 2]
-            target_size: Target size in format [C, (D), H, W, 2]
-        """
         if tensor.size() == target_size:
             return tensor
 
@@ -140,32 +95,7 @@ class FrequencyModel(torch.nn.Module):
 
         return torch.stack((freq_r, freq_i), dim=-1)
 
-    def compute_force(self) -> None:
-        """Compute the force field from frequency parameters.
-
-        Matches reference: progressive_frequency_model.py:156-166
-        Stores result in self.force for later retrieval via get_force().
-        """
-        if self.ndim == 2:
-            self.force = self._compute_force_2d()
-        else:
-            self.force = self._compute_force_3d()
-
-    def get_force(self) -> Tuple[torch.Tensor, ...]:
-        """Get the computed force field.
-
-        Returns:
-            Tuple of force components (u, v) for 2D or (u, v, w) for 3D.
-        """
-        assert self.force is not None, "Must call compute_force() first"
-        return self.force
-
     def _pad_to_full_size(self, params_c: torch.Tensor) -> torch.Tensor:
-        """Pad frequency parameters to full grid size for IFFT.
-
-        Pads current frequency parameters to match the grid size needed
-        for inverse FFT to produce forces on the MAC grid.
-        """
         if self.ndim == 2:
             full_h, full_w = self.sim.ny + 1, self.sim.nx + 1
             freq_shape = params_c.shape[-2:]
@@ -210,12 +140,17 @@ class FrequencyModel(torch.nn.Module):
             ] = params_c
             return full_params
 
-    def _compute_force_2d(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute 2D force field.
+    def compute_force(self) -> None:
+        if self.ndim == 2:
+            self.force = self._compute_force_2d()
+        else:
+            self.force = self._compute_force_3d()
 
-        Returns:
-            (force_u, force_v) for MAC grid.
-        """
+    def get_force(self) -> Tuple[torch.Tensor, ...]:
+        assert self.force is not None, "Must call compute_force() first"
+        return self.force
+
+    def _compute_force_2d(self) -> Tuple[torch.Tensor, torch.Tensor]:
         # Convert to complex and pad to full size
         params_c = torch.view_as_complex(self.param)
         full_params = self._pad_to_full_size(params_c)
@@ -248,11 +183,6 @@ class FrequencyModel(torch.nn.Module):
         return force_u, force_v
 
     def _compute_force_3d(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Compute 3D force field from vector potential.
-
-        Returns:
-            (force_u, force_v, force_w) for MAC grid.
-        """
         # Convert to complex and pad to full size
         params_c = torch.view_as_complex(self.param)
         full_params = self._pad_to_full_size(params_c)
@@ -298,3 +228,18 @@ class FrequencyModel(torch.nn.Module):
             force_w = phi[2, :, : self.sim.ny, : self.sim.nx]
 
         return force_u, force_v, force_w
+
+    def get_force_centered(self) -> Tuple[torch.Tensor, ...]:
+        forces = self.get_force()
+
+        if self.ndim == 2:
+            force_u_stag, force_v_stag = forces
+            force_u = (force_u_stag[:, :-1] + force_u_stag[:, 1:]) * 0.5
+            force_v = (force_v_stag[:-1, :] + force_v_stag[1:, :]) * 0.5
+            return force_u, force_v
+        else:
+            force_u_stag, force_v_stag, force_w_stag = forces
+            force_u = (force_u_stag[:, :, :-1] + force_u_stag[:, :, 1:]) * 0.5
+            force_v = (force_v_stag[:, :-1, :] + force_v_stag[:, 1:, :]) * 0.5
+            force_w = (force_w_stag[:-1, :, :] + force_w_stag[1:, :, :]) * 0.5
+            return force_u, force_v, force_w
