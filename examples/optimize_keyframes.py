@@ -15,15 +15,21 @@ from optimization.controller import FrequencyOptimizer
 
 def main():
     # Parameters
-    nx, ny = 64, 96
     num_frames = 100
     dt = 0.1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load keyframe
-    target_path = "output/keyframes/wind_79.npz"
+    target_path = "output/sim_3d/state_0079.npz"
     target_data_np = np.load(target_path)["density"]
     target_date = torch.from_numpy(target_data_np).to(device, dtype=torch.float32)
+
+    # Extract grid dimensions from keyframe shape
+    if target_data_np.ndim == 2:
+        ny, nx = target_data_np.shape
+        nz = None
+    else:  # 3D
+        nz, ny, nx = target_data_np.shape
 
     keyframes: Dict[int, torch.Tensor] = {79: target_date}
     keyframe_weights = {79: 1.0}
@@ -33,14 +39,24 @@ def main():
 
     print(f"--- Keyframe Optimization ---")
     print(f"Running on {device}")
+    print(f"Grid size: {nx} x {ny}" + (f" x {nz}" if nz else ""))
 
     # Initialize Simulator with proper settings
-    sim = SmokeSimulator(
-        nx=nx,
-        ny=ny,
-        dt=dt,
-        device=device,
-    )
+    if nz is not None:
+        sim = SmokeSimulator(
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            dt=dt,
+            device=device,
+        )
+    else:
+        sim = SmokeSimulator(
+            nx=nx,
+            ny=ny,
+            dt=dt,
+            device=device,
+        )
 
     # Initialize Optimizer
     optimizer = FrequencyOptimizer(
@@ -50,7 +66,7 @@ def main():
         num_frames=num_frames,
         band_radii=band_radii,
         phase_iters=phase_iters,
-        use_checkpoint=False,
+        use_checkpoint=True,
     )
 
     print(

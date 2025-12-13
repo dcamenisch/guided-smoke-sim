@@ -120,7 +120,7 @@ def main() -> None:
     if ndim == 2:
         config = SimulationConfig(nx=64, ny=96, **common_config)
     else:
-        config = SimulationConfig(nx=64, ny=128, nz=64, **common_config)
+        config = SimulationConfig(nx=64, ny=96, nz=64, **common_config)
 
     sim = config.create_simulator()
 

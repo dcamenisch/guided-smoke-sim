@@ -31,7 +31,10 @@ class FrequencyOptimizer:
         self.model = FrequencyModel(simulator, initial_resolution)
 
         # Cap max frequency at Nyquist limit
-        self.max_resolution = min(simulator.nx, simulator.ny) // 2
+        nyquist = min(simulator.nx, simulator.ny)
+        if simulator.ndim == 3:
+            nyquist = min(nyquist, simulator.nz)
+        self.max_resolution = nyquist
 
         self.keyframes = keyframes
         self.weights = keyframe_weights
@@ -64,24 +67,36 @@ class FrequencyOptimizer:
             self.optimizer.zero_grad()
 
             # Initialize state
-            current_density = torch.zeros(
-                (self.sim.ny, self.sim.nx), device=self.sim.device
-            )
-            current_u = torch.zeros(
-                (self.sim.ny, self.sim.nx + 1), device=self.sim.device
-            )
-            current_v = torch.zeros(
-                (self.sim.ny + 1, self.sim.nx), device=self.sim.device
-            )
-            current_pressure = torch.zeros(
-                (self.sim.ny, self.sim.nx), device=self.sim.device
-            )
-            if self.sim.ndim == 3:
+            if self.sim.ndim == 2:
+                current_density = torch.zeros(
+                    (self.sim.ny, self.sim.nx), device=self.sim.device
+                )
+                current_u = torch.zeros(
+                    (self.sim.ny, self.sim.nx + 1), device=self.sim.device
+                )
+                current_v = torch.zeros(
+                    (self.sim.ny + 1, self.sim.nx), device=self.sim.device
+                )
+                current_pressure = torch.zeros(
+                    (self.sim.ny, self.sim.nx), device=self.sim.device
+                )
+                current_w = None
+            else:  # 3D
+                current_density = torch.zeros(
+                    (self.sim.nz, self.sim.ny, self.sim.nx), device=self.sim.device
+                )
+                current_u = torch.zeros(
+                    (self.sim.nz, self.sim.ny, self.sim.nx + 1), device=self.sim.device
+                )
+                current_v = torch.zeros(
+                    (self.sim.nz, self.sim.ny + 1, self.sim.nx), device=self.sim.device
+                )
                 current_w = torch.zeros(
                     (self.sim.nz + 1, self.sim.ny, self.sim.nx), device=self.sim.device
                 )
-            else:
-                current_w = None
+                current_pressure = torch.zeros(
+                    (self.sim.nz, self.sim.ny, self.sim.nx), device=self.sim.device
+                )
 
             total_loss = torch.tensor(0.0, device=self.sim.device)
 
@@ -209,6 +224,8 @@ class FrequencyOptimizer:
                 self.current_phase += 1
                 self.epochs_at_resolution = 0
                 next_res = 2 * self.band_radii[self.current_phase] + 1
+                # Cap at Nyquist limit
+                next_res = min(next_res, self.max_resolution)
                 self.model.reorganize_parameters(next_res)
                 self._create_optimizer()
 
